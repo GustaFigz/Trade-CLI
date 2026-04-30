@@ -1,0 +1,279 @@
+# FTMO Rules Configuration - Phase 1
+# Frozen: Regras FTMO documentadas para referência
+# Date: 2025-04-30
+# Version: 1.0
+
+---
+
+# Drawdown Limits (Absolute)
+drawdown_limits:
+  daily_max_loss_percent: 5.0          # Maximum loss in a single day (%)
+  total_max_loss_percent: 10.0         # Maximum loss over entire challenge period (%)
+  
+  # Implementation
+  daily_reset_time: "00:00 UTC"         # When daily counter resets
+  evaluation: "equity_based"            # Use equity, not balance
+  
+  documentation:
+    daily: "Se perda >= 5%, bloqueia operações para o resto do dia"
+    total: "Se perda acumulada >= 10%, challenge termina (falhado)"
+
+---
+
+# Risk Per Trade (Position Sizing)
+risk_per_trade:
+  minimum_pips: 5                      # Don't trade with stop < 5 pips
+  maximum_pips: 100                    # Don't trade with stop > 100 pips
+  
+  # As % of account balance
+  min_risk_percent: 0.5                # Não arriscar < 0.5%
+  max_risk_percent: 1.0                # Não arriscar > 1.0% (strict)
+  
+  # Implementation
+  strict_mode: true                    # Reject > 1.0% immediately
+  
+  # Exemplo
+  example:
+    account_balance: 100000
+    min_risk_amount: 500                # 0.5% of 100k
+    max_risk_amount: 1000               # 1.0% of 100k
+    if_risk_1500: "BLOCKED (1.5% > 1.0%)"
+
+---
+
+# Operating Session Rules
+session_rules:
+  # News Blackout
+  news_blackout:
+    enabled: true
+    minutes_before: 15                  # Blackout 15min antes de high impact news
+    minutes_after: 15                   # Blackout 15min depois
+    
+    calendar_sources:
+      - "FOMC announcements"
+      - "CPI releases"
+      - "NFP releases"
+      - "ECB decisions"
+      - "RBA/RBNZ decisions"
+    
+    implementation: "Se upcoming_news dentro de 15min, veto tese"
+  
+  # Correlation Block (não trade múltiplos pares altamente correlados)
+  correlation_block:
+    enabled: true
+    max_correlation: 0.7               # Se corr > 0.7, bloqueia segundo par
+    
+    example:
+      - "Se EURUSD aberto, não abrir GBPUSD (corr ~0.85)"
+      - "Se NZDUSD aberto, pode abrir AUDUSD (corr ~0.60)"
+  
+  # Daily Trade Limit
+  max_trades_per_day: 8                # Máximo 8 trades/dia
+  
+  implementation: "Contador reseta à meia-noite UTC"
+  
+  # Session Avoidance (optional)
+  avoid_overlaps:
+    enabled: false                     # FTMO não força isto, mas é bom praticar
+    ny_close_buffer: 60                # Evitar 1h antes de NY fechar (volatilidade cai)
+    asia_asia_open_rush: 30            # Evitar 30min depois de Asia abrir (rush, slipppage)
+
+---
+
+# Quality Filters (RiskGuardian uses these)
+quality_filters:
+  # Confidence (modelo está seguro disso?)
+  min_confidence_score: 0.50           # Não opera < 50% confidence
+  
+  # Alignment (motores concordam?)
+  min_alignment_score: 0.50            # Não opera < 50% alinhamento entre motores
+  
+  # Context Quality (contexto macro é claro?)
+  min_context_quality: 0.55            # Não opera se contexto < 55% calidad
+  
+  # Verdict Mapping
+  verdict_mapping:
+    confidence_low:
+      - "confidence_score < 0.50 → verdict = watch_only"
+      - "confidence_score >= 0.50 → pode ser allowed"
+    
+    alignment_low:
+      - "alignment_score < 0.50 → desacordo entre motores → watch_only"
+      - "alignment_score >= 0.50 → consenso → pode ser allowed"
+    
+    context_low:
+      - "context_quality < 0.55 → ambiente confuso → watch_only"
+      - "context_quality >= 0.55 → ambiente claro → pode ser allowed"
+
+---
+
+# Special Rules (Situações específicas)
+special_rules:
+  # Major US Data (NFP, CPI, etc.)
+  major_us_data:
+    blackout_minutes: 30               # 30min antes/depois
+    impact: "HIGH"
+  
+  # Federal Reserve Decision
+  fed_decision:
+    blackout_minutes: 60               # 60min antes/depois (volatilidade extrema)
+    impact: "CRITICAL"
+  
+  # Geopolitical Events
+  geopolitical:
+    enabled: true
+    action: "veto trades while uncertainty high"
+  
+  # Wide Spread Environment
+  wide_spread_rule:
+    enabled: true
+    max_spread_pips: 2.5               # NZDUSD típico 1.5-2.0
+    action: "If spread > 2.5, watch_only"
+  
+  # Intermarket Divergence
+  intermarket_warning:
+    enabled: true
+    rule: "Se DXY vs EUR/GBP divergem, reduzir confiança"
+    impact: "alignment_score -= 0.1"
+
+---
+
+# Verdict Decision Tree (RiskGuardian Logic)
+
+verdict_logic: |
+  Pseudocode para RiskGuardian.should_block(analysis):
+  
+  1. CHECK Drawdown Limits
+     IF daily_loss >= 5% → BLOCKED (daily_limit_hit)
+     IF total_loss >= 10% → BLOCKED (total_limit_hit)
+  
+  2. CHECK Risk Per Trade
+     IF risk_percent > 1.0 → BLOCKED (too_much_risk)
+     IF risk_pips < 5 → BLOCKED (too_little_edge)
+  
+  3. CHECK News Blackout
+     IF upcoming_news within 15min → BLOCKED (news_blackout)
+  
+  4. CHECK Correlation
+     IF open_position && correlation > 0.7 → BLOCKED (correlation_block)
+  
+  5. CHECK Trade Count
+     IF trades_today >= 8 → BLOCKED (daily_limit_trades)
+  
+  6. CHECK Quality Filters
+     IF confidence < 0.50 → WATCH_ONLY
+     IF alignment < 0.50 → WATCH_ONLY
+     IF context_quality < 0.55 → WATCH_ONLY
+  
+  7. DEFAULT → ALLOWED (passed all checks)
+  
+  Returns: { verdict: "allowed|watch_only|blocked", reason: "..." }
+
+---
+
+# Example Verdicts
+
+examples:
+  scenario_1:
+    name: "High Confidence Setup"
+    inputs:
+      symbol: "NZDUSD"
+      timeframe: "M15"
+      confidence: 0.75
+      alignment: 0.68
+      context_quality: 0.70
+      proposed_risk_percent: 0.8
+      daily_loss: 0.0
+      upcoming_news: false
+    
+    decision_tree:
+      - "✓ Drawdown OK (0.0% < 5%)"
+      - "✓ Risk OK (0.8% < 1.0%)"
+      - "✓ No news blackout"
+      - "✓ No correlation issues"
+      - "✓ Confidence OK (0.75 > 0.50)"
+      - "✓ Alignment OK (0.68 > 0.50)"
+      - "✓ Context OK (0.70 > 0.55)"
+    
+    verdict: "ALLOWED"
+    reason: "All checks passed, good confluence"
+  
+  scenario_2:
+    name: "Low Alignment Setup"
+    inputs:
+      confidence: 0.65
+      alignment: 0.45               # < 0.50
+      context_quality: 0.60
+    
+    decision_tree:
+      - "✓ Drawdown OK"
+      - "✓ Risk OK"
+      - "✓ No news blackout"
+      - "✗ Alignment LOW (0.45 < 0.50) → Motors disagree"
+    
+    verdict: "WATCH_ONLY"
+    reason: "Motores em desacordo, observe antes de operar"
+  
+  scenario_3:
+    name: "High Risk Proposed"
+    inputs:
+      confidence: 0.70
+      alignment: 0.68
+      proposed_risk_percent: 1.5    # > 1.0 (strict)
+    
+    decision_tree:
+      - "✓ Drawdown OK"
+      - "✗ Risk TOO HIGH (1.5% > 1.0%)"
+    
+    verdict: "BLOCKED"
+    reason: "Risco por trade excede limite FTMO (1.5% > 1.0%)"
+  
+  scenario_4:
+    name: "During News Blackout"
+    inputs:
+      confidence: 0.80
+      alignment: 0.75
+      upcoming_news: "CPI in 10 minutes"  # < 15min blackout
+    
+    decision_tree:
+      - "✓ Drawdown OK"
+      - "✓ Risk OK"
+      - "✗ NEWS BLACKOUT (CPI in 10min)"
+    
+    verdict: "BLOCKED"
+    reason: "Major US data within blackout window"
+
+---
+
+# Implementation Checklist
+
+implementation:
+  - [ ] Load ftmo-rules.yaml in Python config/settings.py
+  - [ ] Create RiskGuardian class in core/risk_guardian.py
+  - [ ] Implement should_block() method with decision tree
+  - [ ] Write 5+ unit tests for edge cases
+  - [ ] Add logging for every veto decision
+  - [ ] Test with mock analyses (confidence variations)
+  - [ ] Document in risk-guardian-guide.md
+
+---
+
+# Version History
+
+history:
+  v1.0:
+    date: "2025-04-30"
+    notes: "Initial Phase 1 rules based on FTMO official docs"
+    drawdown_daily: 5.0
+    drawdown_total: 10.0
+    risk_per_trade_max: 1.0
+    status: "Frozen for Phase 1"
+
+---
+
+# References
+
+sources:
+  - "FTMO Official Challenge Rules"
+  - "projeto-ia-trading-forex.md → Princípio 5: A prop firm vem antes da tese"
+  - "docs/decisions-phase1.md → DECISÃO 5: Scope"

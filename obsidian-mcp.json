@@ -1,0 +1,7 @@
+{
+  "command": "npx",
+  "args": ["-y", "@iflow-mcp/yunaga224-obsidian-memory-mcp"],
+  "env": {
+    "MEMORY_DIR": "C:\\Users\\Gusta\\Desktop\\OpenClaw"
+  }
+}
