@@ -42,3 +42,4 @@ Então o próximo passo concreto é escolher **qual destas três estruturas de 
 - intermediária, separando ativos, playbooks e journals;[](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/attachments/127995795/4644bf69-b189-4556-96c2-599554f4d22e/projeto-ia-trading-forex.md)
     
 - analítica, já preparada para integração forte com banco local
+  

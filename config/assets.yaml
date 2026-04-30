@@ -1,0 +1,216 @@
+# Trade-CLI Assets Configuration
+# Phase 2: Replaces hardcoded NZDUSD with full asset list
+
+# ============================================================================
+# FOREX — Major Pairs
+# ============================================================================
+
+forex:
+  primary:
+    - symbol: EURUSD
+      description: Euro / US Dollar
+      correlation_group: usd_major
+      typical_spread_pips: 0.8
+      session_priority: [london, new_york, overlap]
+      main_drivers: [ECB_rates, US_economy, geopolitics]
+      playbook_relevant: [pullback_continuation, breakout, mean_reversion]
+      
+    - symbol: USDJPY
+      description: US Dollar / Japanese Yen
+      correlation_group: usd_major
+      typical_spread_pips: 1.0
+      session_priority: [tokyo, london, new_york]
+      main_drivers: [BOJ_rates, US_rates, risk_sentiment]
+      playbook_relevant: [breakout, correlations, safe_haven]
+      
+    - symbol: USDCAD
+      description: US Dollar / Canadian Dollar
+      correlation_group: usd_commodity
+      typical_spread_pips: 1.2
+      session_priority: [new_york]
+      main_drivers: [BoC_rates, oil_prices, US_economy]
+      playbook_relevant: [commodity_correlation, mean_reversion]
+
+  secondary: []
+
+# ============================================================================
+# INDICES
+# ============================================================================
+
+indices:
+  primary:
+    - symbol: US30
+      description: Dow Jones Industrial Average
+      correlation_group: us_equity
+      typical_spread_pips: 2.0
+      session_priority: [new_york]
+      main_drivers: [US_earnings, Fed_policy, sentiment]
+      playbook_relevant: [trend_following, risk_on_off]
+      
+    - symbol: NAS100
+      description: NASDAQ 100 (Tech)
+      correlation_group: us_equity
+      typical_spread_pips: 2.5
+      session_priority: [new_york]
+      main_drivers: [tech_earnings, Fed_rates, growth_sentiment]
+      playbook_relevant: [trend_following, momentum]
+
+  secondary: []
+
+# ============================================================================
+# TIMEFRAMES — Analysis Hierarchy
+# ============================================================================
+
+timeframes:
+  context:
+    - D1        # Daily (long-term trend context)
+    - H4        # 4-hour (swing structure)
+  
+  execution:
+    - H1        # 1-hour (setup entry)
+    - M15       # 15-min (confirmation)
+  
+  scalping:
+    - M5        # 5-min (scalp entries)
+    - M1        # 1-min (emergency exits only)
+  
+  # Primary analysis level (used in CLI examples)
+  primary_analysis: H1
+  
+  # Multi-timeframe confirmation minimum
+  confirmation_levels: [H4, H1, M15]
+
+# ============================================================================
+# SESSION DEFINITIONS (UTC)
+# ============================================================================
+
+sessions:
+  tokyo:
+    hours: "22:00-07:00 UTC"    # JPY session
+    primary_pairs: [USDJPY, EURJPY, GBPJPY]
+    characteristics: [lower_volatility, asian_hours]
+    
+  london:
+    hours: "07:00-16:00 UTC"    # European session
+    primary_pairs: [EURUSD, GBPUSD, EURJPY]
+    characteristics: [high_volatility, overlap_asian_us]
+    
+  new_york:
+    hours: "13:00-22:00 UTC"    # American session
+    primary_pairs: [EURUSD, USDJPY, USDCAD]
+    characteristics: [highest_volatility, news_heavy]
+    
+  overlap:
+    hours: "overlap London-NY"
+    characteristics: [max_volatility, best_liquidity]
+
+# ============================================================================
+# CORRELATION GROUPS
+# ============================================================================
+
+correlation_groups:
+  usd_major:
+    symbol: USD strength
+    pairs: [EURUSD, USDJPY, USDCAD]
+    rule: "If USD strengthens, all pairs move lower"
+    
+  usd_commodity:
+    symbol: USD vs commodities
+    pairs: [USDCAD, AUDUSD, NZDUSD]
+    rule: "Oil/commodity up = these pairs down"
+    
+  us_equity:
+    symbol: US stock markets
+    pairs: [US30, NAS100]
+    rule: "Tech weakness = risk-off = JPY strength"
+
+# ============================================================================
+# ANALYSIS CONFIGURATION
+# ============================================================================
+
+analysis:
+  # Minimum confidence to suggest ALLOWED verdict
+  min_confidence_allowed: 0.55
+  
+  # Minimum alignment (agreement between engines)
+  min_alignment_watch_only: 0.50
+  
+  # Data source
+  default_data_source: mock  # Will be mt5 once integrated
+  
+  # Output format
+  output_json: true
+  output_obsidian: true
+  
+  # Auto-save behavior
+  save_to_vault: true
+  save_to_db: true
+
+# ============================================================================
+# KNOWLEDGE CONFIGURATION
+# ============================================================================
+
+knowledge:
+  # RAG retrieval
+  top_k_results: 5
+  similarity_threshold: 0.6
+  
+  # Training
+  chunk_size: 500      # chars per chunk
+  overlap: 100         # overlap between chunks
+  
+  # Vectorization (sentence-transformers)
+  embedding_model: all-MiniLM-L6-v2  # Free, local
+  vector_db: faiss                    # Free, local
+  
+  # Topics for auto-tagging
+  topics: [ict, smc, wyckoff, price_action, fundamental, volume_profile, microstructure]
+
+# ============================================================================
+# FTMO CONFIGURATION (Reference)
+# ============================================================================
+
+ftmo:
+  account_balance: 100000
+  daily_loss_limit: 5.0          # percent
+  total_loss_limit: 10.0         # percent
+  risk_per_trade: 0.5            # min percent
+  risk_per_trade_max: 1.0        # max percent
+  max_trades_per_day: 8
+  news_blackout_minutes: 15      # before and after events
+  
+  # Rules are loaded from config/ftmo-rules.yaml at runtime
+  # This is just a reference
+
+# ============================================================================
+# LLM CONFIGURATION (Phase 2)
+# ============================================================================
+
+llm:
+  # Local Gemma via Ollama (free, offline)
+  backend: ollama
+  model: gemma:7b
+  
+  # Alternative: uncomment if you have different setup
+  # backend: anthropic
+  # model: claude-haiku-4.5
+  # api_key: ${ANTHROPIC_API_KEY}  # from .env
+  
+  # Temperature (creativity)
+  temperature: 0.3               # Low = more deterministic
+  
+  # Max tokens for reasoning
+  max_tokens: 2048
+  
+  # Whether to show LLM reasoning in CLI
+  verbose_reasoning: false
+
+# ============================================================================
+# DATABASE CONFIGURATION
+# ============================================================================
+
+database:
+  path: database.db
+  version: "2.0"     # Phase 2
+  backup_enabled: true
+  backup_path: backups/
