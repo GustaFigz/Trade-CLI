@@ -98,7 +98,20 @@ class LocalLLMClient:
                 temperature=self.temperature,
             )
             
-            return response.get('message', {}).get('content', '').strip()
+            # ARQ-004: Defensive parsing for Ollama >= 0.3 (object attrs) and < 0.3 (dict)
+            try:
+                if hasattr(response, 'message') and hasattr(response.message, 'content'):
+                    # Ollama >= 0.3: returns object with attributes
+                    content = response.message.content
+                elif isinstance(response, dict):
+                    # Ollama < 0.3: returns dict
+                    content = response.get('message', {}).get('content', '')
+                else:
+                    content = str(response)
+                return content.strip() if content else ""
+            except Exception as parse_error:
+                logger.error(f"Error parsing Ollama response: {parse_error}")
+                return ""
         except Exception as e:
             logger.error(f"LLM chat failed: {e}")
             return None

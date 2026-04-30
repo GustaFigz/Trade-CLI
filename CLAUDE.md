@@ -479,6 +479,56 @@ ollama list
 
 ---
 
-**Last Updated:** 2026-04-30  
-**Phase:** 2 (Active)  
+---
+
+## 🤖 Antigravity — Instruções para Agente de Codificação
+
+Antigravity é o agente de codificação principal a partir da Fase 2. Estas instruções
+são específicas para sessões com Antigravity.
+
+### Antes de Qualquer Sessão
+1. Lê CLAUDE.md completo
+2. Lê docs/phase2-progress.md para ver estado actual
+3. Lê Trade-CLI-Vault/00-meta/ANTIGRAVITY-SESSION-*.md (último ficheiro)
+4. Verifica qual é o último commit em main
+5. Corre `pytest tests/ -v` para confirmar estado dos testes
+
+### Formato das Tarefas
+Tarefas chegam como `TAREFA AG-XXX` ou como prompt detalhado.
+Cada tarefa tem: ficheiro(s) alvo, o que mudar, como verificar.
+
+### Regras de Código
+- Type hints obrigatórios em todas as funções novas
+- Docstring em todos os módulos novos (propósito, fase, data)
+- Mínimo 1 teste por função pública nova
+- Nunca importar cloud APIs (OpenAI, Anthropic, etc.)
+- Verificar disponibilidade Ollama antes de chamar
+
+### Regras de Ficheiros
+- Python novos: docstring com módulo, fase, data
+- Vault novos: usar templates de Trade-CLI-Vault/00-meta/
+- Configs novos: espelhar estrutura de config/assets.yaml
+
+### Preservação de Contexto
+- Salvar sessão em Trade-CLI-Vault/00-meta/ANTIGRAVITY-SESSION-YYYY-MM-DD.md
+- Manter docs/phase2-progress.md actualizado
+- Guardar plano em brain/ do agente
+
+### Checklist Antes de Terminar
+- [ ] `pytest tests/ -v` passa sem erros
+- [ ] Nenhum `__pycache__` novo nos ficheiros modificados
+- [ ] Nenhum símbolo hardcoded (NZDUSD especialmente)
+- [ ] CLAUDE.md actualizado se arquitectura mudou
+- [ ] requirements.txt actualizado se package novo adicionado
+- [ ] Nenhum commit feito (o utilizador faz os commits)
+- [ ] Sessão guardada em Trade-CLI-Vault/00-meta/
+
+### Ativos Suportados
+EURUSD, USDJPY, USDCAD, US30, NAS100 (ver config/assets.yaml)
+NUNCA usar NZDUSD como exemplo ou placeholder em código novo.
+
+---
+
+**Last Updated:** 2026-05-01  
+**Phase:** 2 (Active — 2.2)  
 **Context Level:** MANDATORY FOR ALL SESSIONS

@@ -49,21 +49,31 @@ ollama.log
 htmlcov/
 *.pyc
 
-# Obsidian
-.obsidian/cache/
-.obsidian/plugins/
+# Obsidian app settings (conflictam entre máquinas)
+.obsidian/
+# Note: Keeps vault content (*.md), only excludes Obsidian app config
 
-# Temporary files
+# Ficheiros temporários
 *.tmp
 *.temp
 *~
+*.canvas
 
 # Chat/Documentation dumps (not code)
 Fase 1.md
 Fase 2.md
+"Fase 1.md"
 chat-*.md
+
+# Ficheiros de planeamento (não são código)
+AUDIT-REPORT.md
 
 # MacOS
 .DS_Store
 .AppleDouble
 .LSOverride
+
+# Caches de vectores RAG
+knowledge/index/
+*.faiss
+*.pkl
