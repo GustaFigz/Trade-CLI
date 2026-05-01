@@ -11,6 +11,9 @@ from engines import (
     TechnicalEngine,
     PriceActionEngine,
     FundamentalEngine,
+    SentimentEngine,
+    IntermarketEngine,
+    VolumeEngine,
     ThesisEngine,
     AnalyticalEngine,
 )
@@ -126,6 +129,40 @@ class TestFundamentalEngine:
         engine = FundamentalEngine()
         output = engine.analyze("EURUSD", "H1")
         assert "macro_bias" in output.evidence
+
+
+# ============================================================================
+# NEW PHASE 2.4 ENGINES
+# ============================================================================
+
+class TestSentimentEngine:
+    def test_analyze_output_contract(self):
+        engine = SentimentEngine()
+        output = engine.analyze("EURUSD", "H1")
+        assert isinstance(output, EngineOutput)
+        assert output.engine_name == "sentiment"
+        assert 0.0 <= output.score <= 1.0
+        assert "sources" in output.evidence
+
+
+class TestIntermarketEngine:
+    def test_analyze_output_contract(self):
+        engine = IntermarketEngine()
+        output = engine.analyze("USDJPY", "H1")
+        assert isinstance(output, EngineOutput)
+        assert output.engine_name == "intermarket"
+        assert 0.0 <= output.score <= 1.0
+        assert "correlation_state" in output.evidence
+
+
+class TestVolumeEngine:
+    def test_analyze_output_contract(self):
+        engine = VolumeEngine()
+        output = engine.analyze("NAS100", "M15")
+        assert isinstance(output, EngineOutput)
+        assert output.engine_name == "volume"
+        assert 0.0 <= output.score <= 1.0
+        assert "volume_state" in output.evidence
 
 
 # ============================================================================

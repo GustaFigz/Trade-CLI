@@ -9,6 +9,7 @@ Data: 2026-05-01
 """
 from __future__ import annotations
 
+from collections.abc import Iterator
 import os
 import time
 from dataclasses import dataclass, field
@@ -42,7 +43,7 @@ class LLMClient:
 
     def __init__(self) -> None:
         self.ollama_base = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        self.ollama_model = os.getenv("OLLAMA_MODEL", "gemma3:latest")
+        self.ollama_model = os.getenv("OLLAMA_MODEL", "gemma4:e4b")
         self.fallback_base = os.getenv("LLM_API_BASE", "").rstrip("/")
         self.fallback_model = os.getenv("LLM_MODEL", "")
         self.fallback_key = os.getenv("LLM_API_KEY", "")
@@ -190,6 +191,64 @@ class LLMClient:
             backend="openai_compatible",
             tokens_used=data.get("usage", {}).get("total_tokens", 0),
         )
+
+    def stream_chat(
+        self,
+        system: str,
+        user: str,
+        history: list[LLMMessage] | None = None,
+        temperature: float = 0.3,
+    ) -> Iterator[str]:
+        """
+        Stream de resposta token a token via Ollama.
+        Nunca levanta excepção para o caller; em erro, emite uma mensagem final.
+        """
+        import json as _json
+
+        if not self._is_ollama_up():
+            yield (
+                "⚠️  Ollama offline.\n"
+                f"Inicia com: `ollama serve`\n"
+                f"Instala o modelo: `ollama pull {self.ollama_model}`"
+            )
+            return
+
+        messages = [{"role": "system", "content": system}]
+        if history:
+            for msg in history:
+                messages.append({"role": msg.role, "content": msg.content})
+        messages.append({"role": "user", "content": user})
+
+        payload = {
+            "model": self.ollama_model,
+            "messages": messages,
+            "stream": True,
+            "options": {"temperature": temperature},
+        }
+
+        try:
+            with httpx.stream(
+                "POST",
+                f"{self.ollama_base}/api/chat",
+                json=payload,
+                timeout=self.timeout,
+            ) as r:
+                r.raise_for_status()
+                for line in r.iter_lines():
+                    if not line:
+                        continue
+                    try:
+                        data = _json.loads(line)
+                    except _json.JSONDecodeError:
+                        continue
+                    chunk = data.get("message", {}).get("content", "")
+                    if chunk:
+                        yield chunk
+                    if data.get("done"):
+                        break
+        except Exception as e:
+            log.error("stream_chat_failed", error=str(e))
+            yield f"\n⚠️  Erro de streaming: {e}"
 
     # ── Convenience methods for orchestrator ──────────────────────────
 

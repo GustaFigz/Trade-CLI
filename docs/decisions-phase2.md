@@ -82,6 +82,90 @@ Degradação graciosa: funciona mesmo sem LLM, sem MT5, sem RAG.
 
 ---
 
+## ADR-007: Gemma4:e4b como modelo default (Phase 2.3)
+**Status:** Accepted  
+**Context:** Phase 1 used gemma3:latest; Phase 2.3 moved to 4-bit quantization for lower memory.  
+**Decision:** Update OLLAMA_MODEL default to gemma4:e4b across .env, orchestrator, tests.  
+**Consequences:**  
+✅ Smaller model (3.5B params 4-bit) = faster inference on CPU  
+✅ Better reasoning than gemma3 with same footprint  
+❌ Requires `ollama pull gemma4:e4b` once  
+❌ Inference slightly slower on low-end hardware  
+**Fallback:** Can use any OpenAI-compatible endpoint via LLM_API_BASE env var.
+
+---
+
+## ADR-008: Chat history persistence (Phase 2.3)
+**Status:** Accepted  
+**Context:** REPL sessions are ephemeral; trader loses conversation context on exit.  
+**Decision:** Save chat history to ~/.tradecli/chat_history.json (max 40 messages).
+Load on session init, save after each interaction. Async to not block.  
+**Consequences:**  
+✅ Conversation survives process restart  
+✅ Easy to audit trader decisions retroactively  
+✅ Lightweight JSON (no database overhead)  
+❌ File grows unbounded without pruning (max 40 msg limit caps it)  
+❌ No encryption (trader's machine is the trust boundary)
+
+---
+
+## ADR-009: Streaming responses (Phase 2.3)
+**Status:** Accepted  
+**Context:** LLM synthesis can take 5-10 sec on CPU; user sees no feedback.  
+**Decision:** Add `LLMClient.stream_chat()` Iterator[str] method for token-by-token output.
+CLI launcher displays tokens in Live widget from rich.progress.  
+**Consequences:**  
+✅ User sees immediate feedback — better UX  
+✅ Identifies stuck processes faster  
+✅ Token streaming = no memory buffer for large responses  
+❌ Cannot easily handle streaming errors mid-response  
+❌ Rich Live widget adds complexity to launcher
+
+---
+
+## ADR-010: Six-engine synthesis with new engines (Phase 2.4)
+**Status:** Accepted  
+**Context:** Phase 1 had 3 engines (technical, price_action, fundamental); Phase 2.4 adds 3 more.  
+**Decision:** Add SentimentEngine, IntermarketEngine, VolumeEngine. ThesisEngine.synthesize()
+averages all 6 scores for final confidence/alignment. All 6 included in AnalysisOutput.  
+**Consequences:**  
+✅ Richer signal = better confluence detection  
+✅ Sentiment/intermarket cheaper than 3 real engines  
+✅ Volume profile adds new risk dimension  
+❌ avg_score(6) differs from avg_score(3) — alignment/confidence change  
+❌ New engines initially deterministic heuristics, not real data  
+**Migration:** Phase 2.4+ implements real sentiment (RSS), real correlations (USD index), real volume.
+
+---
+
+## ADR-011: Obsidian wikilinks for knowledge graph (Phase 2.4)
+**Status:** Accepted  
+**Context:** RAG needs structured knowledge; free-form text is hard to discover.  
+**Decision:** Every vault note must have [[symbol]], [[method]], [[concept]] wikilinks
+(minimum 2 per note). RAGRetriever returns chunks sorted by graph distance.  
+**Consequences:**  
+✅ Obsidian Graphify shows knowledge interconnections  
+✅ RAG ranks by both TF-IDF similarity AND wikilink proximity  
+✅ Graph forces trader to structure knowledge  
+❌ Requires manual tagging of each note  
+❌ Wikilinks break if folder/file renamed
+
+---
+
+## ADR-012: PromptSession with persistent REPL history (Phase 2.3)
+**Status:** Accepted  
+**Context:** Plain console.input() has no history, autocomplete, or persistence.  
+**Decision:** Replace with prompt_toolkit.PromptSession + FileHistory at ~/.tradecli/repl_history.
+Auto-suggest from history, arrow keys for navigation.  
+**Consequences:**  
+✅ Trader can repeat recent commands quickly  
+✅ Command history survives process restart  
+✅ Better UX — familiar like bash/zsh  
+❌ prompt_toolkit adds dependency  
+❌ History file has no encryption
+
+---
+
 ## 🗺️ Phase 3 Roadmap
 
 | Fase | Deliverable | Target |

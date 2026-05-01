@@ -11,6 +11,7 @@ Data: 2026-05-01
 """
 from __future__ import annotations
 
+from collections.abc import Iterable
 import os
 import sys
 import time
@@ -32,13 +33,13 @@ log = structlog.get_logger(__name__)
 console = Console(highlight=False)
 
 # ─── Paleta de cores ───────────────────────────────────────────────────────────
-C_ACCENT  = "bright_cyan"
+C_ACCENT  = "red"
 C_DIM     = "dim white"
 C_OK      = "bright_green"
 C_WARN    = "bright_yellow"
 C_ERR     = "bright_red"
 C_MUTED   = "grey54"
-C_BRAND   = "bold bright_cyan"
+C_BRAND   = "bold red"
 
 # ─── Logo ASCII ────────────────────────────────────────────────────────────────
 LOGO = """\
@@ -59,7 +60,7 @@ def _check_ollama() -> tuple[bool, str]:
     try:
         import httpx
         base = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        model = os.getenv("OLLAMA_MODEL", "gemma3:latest")
+        model = os.getenv("OLLAMA_MODEL", "gemma4:e4b")
         r = httpx.get(f"{base}/api/tags", timeout=2.0)
         if r.status_code == 200:
             models = [m["name"] for m in r.json().get("models", [])]
@@ -303,6 +304,31 @@ def print_analyzing(symbol: str, timeframe: str) -> None:
     print_success(f"Análise {symbol} {timeframe} concluída")
 
 
+def _print_streaming_response(token_iter: Iterable[str], model: str = "") -> None:
+    """Imprime resposta em streaming com Rich Live."""
+    full = ""
+    console.print()
+    with Live(
+        Spinner("dots2", text=Text("  a processar...", style=C_ACCENT)),
+        console=console,
+        refresh_per_second=20,
+        transient=False,
+    ) as live:
+        for chunk in token_iter:
+            full += chunk
+            live.update(
+                Panel(
+                    Markdown(full),
+                    title=Text("  Especialista", style=f"bold {C_ACCENT}"),
+                    subtitle=Text(f"  {model}", style=C_DIM) if model else None,
+                    border_style=C_ACCENT,
+                    padding=(0, 2),
+                )
+            )
+    if not full:
+        print_error("Sem resposta do modelo.")
+
+
 # ─── Boot sequence ─────────────────────────────────────────────────────────────
 
 def boot_sequence() -> None:
@@ -325,11 +351,21 @@ def boot_sequence() -> None:
 
 def start_repl() -> None:
     """
-    REPL interactivo — coração da interface.
-    Modo primário: chat com o especialista.
-    Comandos conhecidos: analyze, train, knowledge, health, etc.
+    REPL interactivo com prompt_toolkit.
+    Histórico persistente, autosuggest e respostas em streaming.
     """
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+    from prompt_toolkit.formatted_text import ANSI
+    from prompt_toolkit.history import FileHistory
     from orchestrator.chat_engine import ChatEngine
+
+    repl_history_file = Path.home() / ".tradecli" / "repl_history"
+    repl_history_file.parent.mkdir(parents=True, exist_ok=True)
+    session = PromptSession(
+        history=FileHistory(str(repl_history_file)),
+        auto_suggest=AutoSuggestFromHistory(),
+    )
 
     chat_engine = ChatEngine()
     render_main_screen()
@@ -338,16 +374,13 @@ def start_repl() -> None:
     CLI_COMMANDS = {
         "analyze", "train", "knowledge", "outcome",
         "review", "history", "health", "init", "db-setup",
-        "show", "version", "models", "assets", "tui",
+        "show", "version", "models", "assets", "tui", "config",
     }
 
     while True:
         try:
-            raw = console.input(
-                Text.assemble(
-                    ("\n  tradecli", C_BRAND),
-                    (" › ", C_MUTED),
-                ).plain
+            raw = session.prompt(
+                ANSI("\033[31m  tradecli\033[0m\033[2m › \033[0m")
             ).strip()
 
             if not raw:
@@ -378,13 +411,9 @@ def start_repl() -> None:
                 continue
 
             # Tudo o resto → chat com o especialista
-            with print_thinking("A consultar conhecimento..."):
-                response = chat_engine.chat(raw)
-
-            print_assistant_response(
-                response.content,
-                model=response.model,
-                ms=response.duration_ms,
+            _print_streaming_response(
+                chat_engine.stream(raw),
+                model=chat_engine.model_name,
             )
 
         except KeyboardInterrupt:
@@ -402,23 +431,23 @@ def start_repl() -> None:
 
 
 def _run_cli_command(parts: list[str]) -> None:
-    """Executa um comando Typer dentro do REPL."""
-    from typer import main as typer_main
-    from click.testing import CliRunner
+    """Executa sub-comando Typer directamente sem CliRunner."""
+    import sys as _sys
     from cli.main import app
+    from typer.main import get_command
 
-    click_app = typer_main.get_command(app)
-    runner = CliRunner(mix_stderr=False)
+    old_argv = _sys.argv
+    _sys.argv = ["tradecli", *parts]
     try:
-        result = runner.invoke(click_app, parts, catch_exceptions=False)
-        if result.output:
-            console.print(result.output, end="")
-        if result.exit_code != 0:
-            print_error(f"Comando falhou com código {result.exit_code}")
+        click_app = get_command(app)
+        click_app.main(args=parts, prog_name="tradecli", standalone_mode=False)
     except SystemExit:
         pass
     except Exception as e:
-        print_error(str(e))
+        print_error(f"Erro no comando '{' '.join(parts)}': {e}")
+        log.error("cli_command_error", cmd=parts, error=str(e))
+    finally:
+        _sys.argv = old_argv
 
 
 # ─── Entry point ───────────────────────────────────────────────────────────────

@@ -14,7 +14,15 @@ from datetime import datetime
 
 from core.analysis_schema import AnalysisOutput, EngineOutput, ProposalVerdictOutput, VerdictType
 from core.risk_guardian import RiskGuardian
-from engines import TechnicalEngine, PriceActionEngine, FundamentalEngine, ThesisEngine
+from engines import (
+    TechnicalEngine,
+    PriceActionEngine,
+    FundamentalEngine,
+    SentimentEngine,
+    IntermarketEngine,
+    VolumeEngine,
+    ThesisEngine,
+)
 
 from data.mt5_client import MT5Client
 from knowledge.obsidian_reader import ObsidianReader
@@ -56,6 +64,9 @@ class Orchestrator:
         self.technical_engine = TechnicalEngine()
         self.price_action_engine = PriceActionEngine()
         self.fundamental_engine = FundamentalEngine()
+        self.sentiment_engine = SentimentEngine()
+        self.intermarket_engine = IntermarketEngine()
+        self.volume_engine = VolumeEngine()
         self.thesis_engine = ThesisEngine()
         
         # Knowledge & RAG
@@ -117,6 +128,30 @@ class Orchestrator:
                 logger.info(f"Fundamental engine: {fund_output.score:.1%}")
         except Exception as e:
             logger.error(f"Fundamental engine failed: {e}")
+
+        try:
+            sentiment_output = self.sentiment_engine.analyze(symbol, timeframe, bars)
+            if sentiment_output:
+                engine_outputs.append(sentiment_output)
+                logger.info(f"Sentiment engine: {sentiment_output.score:.1%}")
+        except Exception as e:
+            logger.error(f"Sentiment engine failed: {e}")
+
+        try:
+            intermarket_output = self.intermarket_engine.analyze(symbol, timeframe, bars)
+            if intermarket_output:
+                engine_outputs.append(intermarket_output)
+                logger.info(f"Intermarket engine: {intermarket_output.score:.1%}")
+        except Exception as e:
+            logger.error(f"Intermarket engine failed: {e}")
+
+        try:
+            volume_output = self.volume_engine.analyze(symbol, timeframe, bars)
+            if volume_output:
+                engine_outputs.append(volume_output)
+                logger.info(f"Volume engine: {volume_output.score:.1%}")
+        except Exception as e:
+            logger.error(f"Volume engine failed: {e}")
         
         # Step 3: Retrieve RAG context (if enabled)
         rag_context = ""
@@ -192,6 +227,15 @@ class Orchestrator:
                 'technical_score': thesis_output.technical_score,
                 'price_action_score': thesis_output.price_action_score,
                 'fundamental_score': thesis_output.fundamental_score,
+                'sentiment_score': next(
+                    (e.score for e in engine_outputs if e.engine_name == "sentiment"), 0.0
+                ),
+                'intermarket_score': next(
+                    (e.score for e in engine_outputs if e.engine_name == "intermarket"), 0.0
+                ),
+                'volume_score': next(
+                    (e.score for e in engine_outputs if e.engine_name == "volume"), 0.0
+                ),
             },
             'engine_outputs': [
                 {
@@ -264,6 +308,9 @@ class Orchestrator:
             'technical': True,
             'price_action': True,
             'fundamental': True,
+            'sentiment': True,
+            'intermarket': True,
+            'volume': True,
             'thesis': True,
         }
         

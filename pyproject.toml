@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "trade-cli"
 version = "0.2.0"
@@ -6,8 +10,15 @@ requires-python = ">=3.11"
 readme = "README.md"
 
 [project.scripts]
-tradecli = "main:main"
-trade-cli = "main:main"
+tradecli = "cli.launcher:main"
+trade-cli = "cli.launcher:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = [
+  "cli*", "core*", "engines*", "orchestrator*",
+  "knowledge*", "db*", "data*", "training*"
+]
 
 [tool.ruff]
 target-version = "py311"

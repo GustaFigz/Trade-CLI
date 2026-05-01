@@ -81,6 +81,6 @@ class TestLLMClient:
         models = self.client.get_available_models()
         assert isinstance(models, list)
 
-    def test_default_model_is_gemma3(self):
-        """Default model should be gemma3:latest."""
-        assert "gemma3" in self.client.ollama_model
+    def test_default_model_is_gemma4(self):
+        """Default model should be gemma4:e4b."""
+        assert self.client.ollama_model == "gemma4:e4b"

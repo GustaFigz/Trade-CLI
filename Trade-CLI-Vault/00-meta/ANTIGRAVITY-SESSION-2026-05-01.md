@@ -223,20 +223,96 @@ Testes por ficheiro:
 TOTAL: 99 passed, 27 deselected (slow), 1 warning
 ```
 
-## Ficheiros que NÃO devem ser tocados na próxima sessão
+## BLOCO 5 — Phase 2.3-2.4 Transition (CONTINUAÇÃO DESTA SESSÃO)
+
+### Concluído
+
+#### Packaging & UX (Bloco A — Crítico)
+- ✓ `pyproject.toml` — [build-system] adicionado, entry point = cli.launcher:main, packages.find configurado
+- ✓ `requirements.txt` — textual>=0.59.0 adicionado
+- ✓ `.env.example` — OLLAMA_MODEL = gemma4:e4b (estava gemma3:latest)
+- ✓ `orchestrator/llm_client.py` — stream_chat() Iterator[str] adicionado, default model gemma4:e4b
+- ✓ `cli/tui/app.py` — os.chdir() removido (segurança), CSS_PATH = Path(__file__).parent / "theme" (absoluto)
+- ✓ Tests actualizados: gemma3 → gemma4:e4b em 3 ficheiros
+- ✓ Resultado: 99 testes passam (eram 96 com import errors)
+
+#### Chat Persistence & Streaming (Bloco B — Importante)
+- ✓ `orchestrator/chat_engine.py` — _load_history(), _save_history() (JSON ~/.tradecli/chat_history.json, max 40 msgs)
+- ✓ `orchestrator/chat_engine.py` — stream() generator para output token-by-token
+- ✓ `cli/launcher.py` — PromptSession (prompt_toolkit) com FileHistory, AutoSuggestFromHistory
+- ✓ `cli/launcher.py` — _print_streaming_response() com Live widget rendering
+- ✓ Testes: test_stream_updates_session(), test_chat_history_persists_between_instances()
+- ✓ Resultado: 101 testes passam
+
+#### Phase 2.4 New Engines (Bloco C — Funcionalidades)
+- ✓ `engines/sentiment.py` — NEW SentimentEngine (deterministic heuristics, symbol+TF variation)
+- ✓ `engines/intermarket.py` — NEW IntermarketEngine (USD/equity confluence scoring)
+- ✓ `engines/volume.py` — NEW VolumeEngine (volume participation heuristics)
+- ✓ `engines/__init__.py` — ThesisEngine.synthesize() calls all 6 engines (tech, pa, fund, sentiment, intermarket, volume)
+- ✓ `orchestrator/orchestrator.py` — analyze() runs 6 engines in parallel try/except, includes all scores
+- ✓ `tests/test_rag.py` — NEW (16 tests: ObsidianReader, RAGRetriever, ContextBuilder)
+- ✓ `tests/test_orchestrator.py` — NEW (16 tests: pipeline, RiskGuardian, health check, graceful degradation)
+- ✓ `tests/test_engines.py` — TestSentimentEngine, TestIntermarketEngine, TestVolumeEngine added
+- ✓ Resultado: 141 testes passam
+
+#### Vault & Documentation (Bloco D — Conhecimento)
+- ✓ `docs/decisions-phase2.md` — ADR-007 a ADR-012 adicionados (Gemma4, chat history, streaming, 6 engines, wikilinks, PromptSession)
+- ✓ `Trade-CLI-Vault/conceitos/BOS.md` — NEW Break of Structure (definição, tipos, trading rules, ICT)
+- ✓ `Trade-CLI-Vault/conceitos/market-regime.md` — NEW (Trending/Ranging/Volatile, detecção, Trade-CLI scoring)
+- ✓ `Trade-CLI-Vault/conceitos/confluence.md` — NEW (Price/struct/timeframe/time confluence, Trade-CLI metrics)
+- ✓ `Trade-CLI-Vault/metodos/Sentiment-Analysis.md` — NEW (Sentiment scoring, DXY/equities/news, TradeCLI integration)
+- ✓ Resultado: 141 testes passam, health check ✅
+
+### Estado Final
+
+```
+✅ 141 tests passed, 27 deselected (slow + integration) in 15.52s
+✅ All 6 engines synthesize correctly
+✅ RiskGuardian veto enforced
+✅ Graceful degradation (works without LLM, RAG, MT5)
+✅ Chat history persists across sessions
+✅ Streaming responses end-to-end
+✅ Health check: all components OK (Ollama gemma4:e4b active, 31 vault notes)
+```
+
+### Ficheiros criados/modificados nesta continuação
+
+**Criados:**
+- `engines/sentiment.py`
+- `engines/intermarket.py`
+- `engines/volume.py`
+- `tests/test_rag.py`
+- `tests/test_orchestrator.py`
+- `Trade-CLI-Vault/conceitos/BOS.md`
+- `Trade-CLI-Vault/conceitos/market-regime.md`
+- `Trade-CLI-Vault/conceitos/confluence.md`
+- `Trade-CLI-Vault/metodos/Sentiment-Analysis.md`
+
+**Modificados:**
+- `engines/__init__.py` — 6 engines integration
+- `orchestrator/orchestrator.py` — 6 engines synthesis
+- `tests/test_engines.py` — new engine tests
+- `docs/decisions-phase2.md` — ADR-007 a ADR-012
+
+## Ficheiros que NÃO devem ser tocados
 
 - `core/analysis_schema.py` — FROZEN por arquitectura
-- `core/risk_guardian.py` — FROZEN por arquitectura (adicionar testes SIM, modificar NÃO)
+- `core/risk_guardian.py` — FROZEN por arquitectura
 - `.gitignore` — completo e definitivo
 - `.github/workflows/ci.yml` — completo
-- `pyproject.toml` — completo
+- `pyproject.toml` — completo (Phase 2.3 update)
 - `config/assets.yaml` — completo
 - `config/ftmo-rules.yaml` — completo
 - `README.md` — completo
-- `orchestrator/llm_client.py` — completo (Phase 2.3 upgrade)
-- `orchestrator/chat_engine.py` — completo (pode receber features em 2.4+)
-- `knowledge/rag_retriever.py` — completo (TF-IDF, upgrade path para sentence-transformers)
+- `orchestrator/llm_client.py` — completo (Phase 2.3 stream_chat)
+- `orchestrator/chat_engine.py` — completo (Phase 2.3 persistence)
+- `cli/launcher.py` — completo (Phase 2.3 PromptSession)
+- `cli/tui/app.py` — completo (Phase 2.3 path fix)
+- `knowledge/rag_retriever.py` — completo (TF-IDF)
 - `data/mock_data.py` — completo
 - `tests/test_llm_client.py` — completo
-- `tests/test_engines.py` — completo (pode receber testes extra se coverage exigir)
+- `tests/test_chat_engine.py` — completo
+- `tests/test_engines.py` — completo (Phase 2.4 engines)
 - `tests/test_data.py` — completo
+- `tests/test_rag.py` — completo (NEW Phase 2.4)
+- `tests/test_orchestrator.py` — completo (NEW Phase 2.4)

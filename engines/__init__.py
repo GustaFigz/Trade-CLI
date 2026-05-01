@@ -16,6 +16,9 @@ from core.analysis_schema import (
 from typing import List, Dict, Any, Optional
 from abc import ABC, abstractmethod
 import pandas as pd
+from engines.intermarket import IntermarketEngine
+from engines.sentiment import SentimentEngine
+from engines.volume import VolumeEngine
 
 
 # ============================================================================
@@ -232,6 +235,9 @@ class ThesisEngine:
         self.technical_engine = TechnicalEngine()
         self.price_action_engine = PriceActionEngine()
         self.fundamental_engine = FundamentalEngine()
+        self.sentiment_engine = SentimentEngine()
+        self.intermarket_engine = IntermarketEngine()
+        self.volume_engine = VolumeEngine()
     
     def synthesize(
         self,
@@ -267,6 +273,15 @@ class ThesisEngine:
             fund_output = next(
                 (e for e in engine_outputs if e.engine_name == "fundamental"), None
             )
+            sentiment_output = next(
+                (e for e in engine_outputs if e.engine_name == "sentiment"), None
+            )
+            intermarket_output = next(
+                (e for e in engine_outputs if e.engine_name == "intermarket"), None
+            )
+            volume_output = next(
+                (e for e in engine_outputs if e.engine_name == "volume"), None
+            )
             # Fallback to internal engines if any is missing
             if not tech_output:
                 tech_output = self.technical_engine.analyze(symbol, timeframe)
@@ -279,6 +294,9 @@ class ThesisEngine:
             tech_output = self.technical_engine.analyze(symbol, timeframe)
             pa_output = self.price_action_engine.analyze(symbol, timeframe)
             fund_output = self.fundamental_engine.analyze(symbol, timeframe)
+            sentiment_output = self.sentiment_engine.analyze(symbol, timeframe)
+            intermarket_output = self.intermarket_engine.analyze(symbol, timeframe)
+            volume_output = self.volume_engine.analyze(symbol, timeframe)
         
         # If LLM synthesis provided, append to analyst_notes
         if llm_synthesis:
@@ -288,9 +306,15 @@ class ThesisEngine:
         technical_score = tech_output.score
         price_action_score = pa_output.score
         fundamental_score = fund_output.score
+        sentiment_score = sentiment_output.score if sentiment_output else None
+        intermarket_score = intermarket_output.score if intermarket_output else None
+        volume_score = volume_output.score if volume_output else None
         
         # Calculate confidence and alignment
         scores = [technical_score, price_action_score, fundamental_score]
+        for extra_score in (sentiment_score, intermarket_score, volume_score):
+            if extra_score is not None:
+                scores.append(extra_score)
         avg_score = sum(scores) / len(scores)
         
         # Alignment = low variance between engines (consensus)

@@ -3,11 +3,15 @@ Trade-CLI TUI — Main Application
 Phase 3 TUI — Date: 2026-05-01
 """
 
-import os
+from pathlib import Path
 from textual.app import App
 from textual.widgets import Input
 from cli.tui.screens.dashboard import DashboardScreen
 from orchestrator.orchestrator import Orchestrator
+
+# CSS absoluto para evitar dependência do CWD
+_CSS_PATH = str(Path(__file__).parent / "theme" / "trade_cli.tcss")
+
 
 class TradeCLIApp(App):
     """
@@ -15,20 +19,18 @@ class TradeCLIApp(App):
     Loads theme and handles input processing.
     """
     
-    CSS_PATH = "theme/trade_cli.tcss"
+    CSS_PATH = _CSS_PATH
     
     BINDINGS = [
         ("q", "quit", "Quit"),
         ("r", "refresh", "Refresh"),
     ]
     
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
-        # Ensure we run from root directory to find configs
-        os.chdir(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
         self.orchestrator = Orchestrator(use_llm=False, use_rag=False, use_mt5=True)
     
-    def on_mount(self):
+    def on_mount(self) -> None:
         self.push_screen(DashboardScreen())
     
     async def on_input_submitted(self, event: Input.Submitted):

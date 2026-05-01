@@ -13,12 +13,16 @@ Data: 2026-05-01
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
+from pathlib import Path
 import structlog
 
 from orchestrator.llm_client import LLMClient, LLMMessage, LLMResponse
 
 log = structlog.get_logger(__name__)
+_HISTORY_FILE = Path.home() / ".tradecli" / "chat_history.json"
+_MAX_PERSIST = 40
 
 SPECIALIST_SYSTEM_PROMPT = """
 És um especialista sénior em trading de Forex com mais de 15 anos de experiência.
@@ -75,6 +79,7 @@ class ChatEngine:
         self.llm = LLMClient()
         self.session = ChatSession()
         self._rag_available = self._init_rag()
+        self._load_history()
 
     def _init_rag(self) -> bool:
         """Inicializa RAG se disponível — graceful fallback se não."""
@@ -106,6 +111,57 @@ class ChatEngine:
             log.warning("rag_search_failed", error=str(e))
             return "Erro ao consultar base de conhecimento."
 
+    def _load_history(self) -> None:
+        """Carrega histórico persistido da sessão anterior."""
+        try:
+            _HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+            if _HISTORY_FILE.exists():
+                data = json.loads(_HISTORY_FILE.read_text(encoding="utf-8"))
+                for msg in data[-_MAX_PERSIST:]:
+                    self.session.add(msg["role"], msg["content"])
+                log.info("history_loaded", messages=len(self.session.history))
+        except Exception as e:
+            log.warning("history_load_failed", error=str(e))
+
+    def _save_history(self) -> None:
+        """Persiste histórico em disco após cada troca."""
+        try:
+            data = [
+                {"role": m.role, "content": m.content}
+                for m in self.session.history[-_MAX_PERSIST:]
+            ]
+            _HISTORY_FILE.write_text(
+                json.dumps(data, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except Exception as e:
+            log.warning("history_save_failed", error=str(e))
+
+    @property
+    def model_name(self) -> str:
+        """Nome do modelo LLM activo."""
+        return self.llm.ollama_model
+
+    def stream(self, user_message: str):
+        """
+        Stream da resposta token a token.
+        Yields chunks de texto enquanto chegam do backend.
+        """
+        rag_context = self._get_rag_context(user_message)
+        system = SPECIALIST_SYSTEM_PROMPT.format(rag_context=rag_context)
+        full_response = ""
+        for chunk in self.llm.stream_chat(
+            system=system,
+            user=user_message,
+            history=self.session.history,
+            temperature=0.3,
+        ):
+            full_response += chunk
+            yield chunk
+        self.session.add("user", user_message)
+        self.session.add("assistant", full_response)
+        self._save_history()
+
     def chat(self, user_message: str) -> LLMResponse:
         """
         Processa uma mensagem do utilizador.
@@ -131,10 +187,12 @@ class ChatEngine:
         # 4. Actualiza histórico
         self.session.add("user", user_message)
         self.session.add("assistant", response.content)
+        self._save_history()
 
         return response
 
     def reset_session(self) -> None:
         """Limpa histórico da sessão actual."""
         self.session.clear()
+        self._save_history()
         log.info("chat_session_reset")
