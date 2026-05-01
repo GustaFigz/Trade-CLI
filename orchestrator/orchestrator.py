@@ -123,11 +123,8 @@ class Orchestrator:
         if self.use_rag and self.rag_retriever:
             try:
                 query = f"{symbol} {timeframe} {user_query or ''}"
-                # Create a simple random embedding for testing, or use real embedding if available
-                import numpy as np
-                query_embedding = np.random.rand(384).astype(np.float32)  # Assuming 384 is the dim
-                chunks = self.rag_retriever.search(query_embedding, k=5, symbol_filter=symbol)
-                rag_context = "\n".join([c.get("text", "") for c in chunks]) if chunks else ""
+                chunks = self.rag_retriever.search(query, top_k=5)
+                rag_context = "\n".join([c.content for c in chunks]) if chunks else ""
                 self.context_builder = ContextBuilder(symbol, timeframe)
                 logger.info(f"RAG context: {len(chunks)} chunks retrieved")
             except Exception as e:

@@ -65,6 +65,18 @@ EngineOutput(
 - Nunca usar print() fora do CLI layer
 - Logs vão para: trade-cli.log (structured JSON) + terminal (human readable)
 
+### Rule 9: Testes Lentos Separados
+- Testes que requerem sentence-transformers, FAISS, ou Ollama → @pytest.mark.slow
+- Testes que requerem MT5 ou services externos → @pytest.mark.integration
+- Default: `pytest -m "not slow and not integration"`
+- Imports pesados SEMPRE dentro das funções de teste, nunca no topo do ficheiro
+
+### Rule 10: Interface Conversacional
+- O CLI é um especialista — responde perguntas livremente
+- Comandos estruturados (analyze, train, etc.) coexistem com chat livre
+- ChatEngine integra RAG + LLM + histórico de sessão
+- Se LLM offline, mensagem de ajuda graciosa (nunca crash)
+
 ---
 
 ## 📊 Current Status
@@ -544,4 +556,5 @@ NUNCA usar NZDUSD como exemplo ou placeholder em código novo.
 
 **Last Updated:** 2026-05-01  
 **Phase:** 2 (Active — 2.3)  
-**Context Level:** MANDATORY FOR ALL SESSIONS
+**Context Level:** MANDATORY FOR ALL SESSIONS  
+**Session:** Phase 2.3 — ChatEngine + RAG TF-IDF + Launcher Upgrade

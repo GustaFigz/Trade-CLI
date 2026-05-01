@@ -1,8 +1,8 @@
 """
-LLM Client — Trade-CLI Fase 2
-Backend: Ollama (Gemma local) como primário.
-Fallback: OpenAI-compatible endpoint via LLM_API_BASE env var.
-NUNCA usa cloud APIs como default — privacidade e zero custo.
+LLM Client — Trade-CLI
+Backend primário: Ollama local via httpx (sem dependência de SDK).
+Backend fallback: qualquer OpenAI-compatible endpoint.
+NUNCA cloud API como padrão.
 
 Fase: 2.3
 Data: 2026-05-01
@@ -10,137 +10,185 @@ Data: 2026-05-01
 from __future__ import annotations
 
 import os
-import logging
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from typing import Optional
 import httpx
+import structlog
 
-logger = logging.getLogger(__name__)
+log = structlog.get_logger(__name__)
+
+
+@dataclass
+class LLMMessage:
+    role: str   # "system" | "user" | "assistant"
+    content: str
 
 
 @dataclass
 class LLMResponse:
     content: str
     model: str
-    backend: str  # "ollama" | "openai_compatible"
+    backend: str       # "ollama" | "openai_compatible" | "unavailable"
     tokens_used: int = 0
+    duration_ms: float = 0.0
 
 
 class LLMClient:
     """
     Abstracção sobre backends LLM locais.
-    Prioridade: Ollama → fallback OpenAI-compatible (se configurado via env).
+    Usa httpx directo para máxima fiabilidade e zero dependências de SDK.
     """
 
     def __init__(self) -> None:
         self.ollama_base = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        self.ollama_model = os.getenv("OLLAMA_MODEL", "gemma:7b")
-        self.fallback_base = os.getenv("LLM_API_BASE", "")
+        self.ollama_model = os.getenv("OLLAMA_MODEL", "gemma3:latest")
+        self.fallback_base = os.getenv("LLM_API_BASE", "").rstrip("/")
         self.fallback_model = os.getenv("LLM_MODEL", "")
         self.fallback_key = os.getenv("LLM_API_KEY", "")
-        self.timeout = int(os.getenv("LLM_TIMEOUT_SECONDS", "120"))
+        self.timeout = float(os.getenv("LLM_TIMEOUT_SECONDS", "120"))
 
-    def is_ollama_available(self) -> bool:
-        """Check if Ollama server is running and reachable."""
+    def is_available(self) -> bool:
+        """Verifica se algum backend LLM está disponível."""
+        return self._is_ollama_up() or bool(self.fallback_base)
+
+    def _is_ollama_up(self) -> bool:
         try:
-            response = httpx.get(f"{self.ollama_base}/api/tags", timeout=3)
-            return response.status_code == 200
+            r = httpx.get(f"{self.ollama_base}/api/tags", timeout=3.0)
+            return r.status_code == 200
         except Exception:
             return False
 
-    def is_available(self) -> bool:
-        """Check if any LLM backend is available."""
-        if self.is_ollama_available():
-            return True
-        if self.fallback_base:
-            return True
-        return False
+    # Keep backward-compatible alias
+    is_ollama_available = _is_ollama_up
+
+    def get_available_models(self) -> list[str]:
+        """Lista modelos disponíveis no Ollama."""
+        try:
+            r = httpx.get(f"{self.ollama_base}/api/tags", timeout=5.0)
+            if r.status_code == 200:
+                return [m["name"] for m in r.json().get("models", [])]
+        except Exception:
+            pass
+        return []
 
     def chat(
         self,
         system: str,
         user: str,
+        history: list[LLMMessage] | None = None,
         max_tokens: int = 2048,
+        temperature: float = 0.3,
     ) -> LLMResponse:
         """
-        Send a chat request to the best available LLM backend.
-
-        Args:
-            system: System prompt
-            user: User message
-            max_tokens: Maximum tokens to generate
-
-        Returns:
-            LLMResponse with content and metadata
-
-        Raises:
-            RuntimeError: If no backend is available
+        Conversa com o LLM.
+        Tenta Ollama primeiro; fallback para OpenAI-compatible se configurado.
+        Nunca levanta excepção — retorna sempre um LLMResponse.
         """
-        if self.is_ollama_available():
-            return self._chat_ollama(system, user, max_tokens)
-        elif self.fallback_base:
-            logger.warning("Ollama indisponível — usando fallback OpenAI-compatible")
-            return self._chat_openai_compatible(system, user, max_tokens)
-        else:
-            raise RuntimeError(
-                "Nenhum backend LLM disponível. "
-                "Inicia o Ollama: 'ollama serve' e garante que o modelo está instalado: "
-                f"'ollama pull {self.ollama_model}'"
-            )
+        t0 = time.monotonic()
+
+        if self._is_ollama_up():
+            try:
+                result = self._chat_ollama(system, user, history, max_tokens, temperature)
+                result.duration_ms = (time.monotonic() - t0) * 1000
+                log.info("llm_response", backend="ollama", ms=round(result.duration_ms))
+                return result
+            except Exception as e:
+                log.warning("ollama_failed", error=str(e))
+
+        if self.fallback_base:
+            log.warning("using_fallback_llm", base=self.fallback_base)
+            try:
+                result = self._chat_openai_compat(system, user, history, max_tokens, temperature)
+                result.duration_ms = (time.monotonic() - t0) * 1000
+                return result
+            except Exception as e:
+                log.error("fallback_llm_failed", error=str(e))
+
+        return LLMResponse(
+            content=(
+                "⚠️  Nenhum LLM disponível.\n"
+                f"Inicia o Ollama: `ollama serve`\n"
+                f"Instala um modelo: `ollama pull {self.ollama_model}`"
+            ),
+            model="unavailable",
+            backend="unavailable",
+        )
 
     def _chat_ollama(
-        self, system: str, user: str, max_tokens: int
+        self,
+        system: str,
+        user: str,
+        history: list[LLMMessage] | None,
+        max_tokens: int,
+        temperature: float,
     ) -> LLMResponse:
-        """Chat via Ollama local API."""
+        messages = [{"role": "system", "content": system}]
+        if history:
+            for msg in history:
+                messages.append({"role": msg.role, "content": msg.content})
+        messages.append({"role": "user", "content": user})
+
         payload = {
             "model": self.ollama_model,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
+            "messages": messages,
             "stream": False,
-            "options": {"num_predict": max_tokens},
+            "options": {
+                "num_predict": max_tokens,
+                "temperature": temperature,
+            },
         }
-        response = httpx.post(
+        r = httpx.post(
             f"{self.ollama_base}/api/chat",
             json=payload,
             timeout=self.timeout,
         )
-        response.raise_for_status()
-        data = response.json()
+        r.raise_for_status()
+        data = r.json()
         return LLMResponse(
             content=data["message"]["content"],
             model=self.ollama_model,
             backend="ollama",
+            tokens_used=data.get("eval_count", 0),
         )
 
-    def _chat_openai_compatible(
-        self, system: str, user: str, max_tokens: int
+    def _chat_openai_compat(
+        self,
+        system: str,
+        user: str,
+        history: list[LLMMessage] | None,
+        max_tokens: int,
+        temperature: float,
     ) -> LLMResponse:
-        """Chat via OpenAI-compatible API endpoint."""
+        messages = [{"role": "system", "content": system}]
+        if history:
+            for msg in history:
+                messages.append({"role": msg.role, "content": msg.content})
+        messages.append({"role": "user", "content": user})
+
         headers = {"Content-Type": "application/json"}
         if self.fallback_key:
             headers["Authorization"] = f"Bearer {self.fallback_key}"
+
         payload = {
             "model": self.fallback_model,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
+            "messages": messages,
             "max_tokens": max_tokens,
+            "temperature": temperature,
         }
-        response = httpx.post(
+        r = httpx.post(
             f"{self.fallback_base}/chat/completions",
             json=payload,
             headers=headers,
             timeout=self.timeout,
         )
-        response.raise_for_status()
-        data = response.json()
+        r.raise_for_status()
+        data = r.json()
         return LLMResponse(
             content=data["choices"][0]["message"]["content"],
             model=self.fallback_model,
             backend="openai_compatible",
+            tokens_used=data.get("usage", {}).get("total_tokens", 0),
         )
 
     # ── Convenience methods for orchestrator ──────────────────────────
@@ -164,9 +212,11 @@ class LLMClient:
                 ),
                 user=context,
             )
+            if response.backend == "unavailable":
+                return None
             return response.content
         except Exception as e:
-            logger.warning(f"LLM thesis generation failed: {e}")
+            log.warning("llm_thesis_failed", error=str(e))
             return None
 
     def synthesize_engines(self, engines_text: str) -> Optional[str]:
@@ -190,9 +240,11 @@ class LLMClient:
                 ),
                 user=engines_text,
             )
+            if response.backend == "unavailable":
+                return None
             return response.content
         except Exception as e:
-            logger.warning(f"LLM synthesis failed: {e}")
+            log.warning("llm_synthesis_failed", error=str(e))
             return None
 
     def explain_verdict(self, analysis_summary: str) -> Optional[str]:
@@ -215,7 +267,9 @@ class LLMClient:
                 user=analysis_summary,
                 max_tokens=256,
             )
+            if response.backend == "unavailable":
+                return None
             return response.content
         except Exception as e:
-            logger.warning(f"LLM verdict explanation failed: {e}")
+            log.warning("llm_verdict_failed", error=str(e))
             return None

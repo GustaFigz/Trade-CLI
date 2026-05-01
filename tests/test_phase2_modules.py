@@ -195,7 +195,7 @@ class TestLLMClient:
     def test_llm_initialization(self):
         """Test LLM client init"""
         client = LLMClient()
-        assert client.ollama_model == "gemma:7b"
+        assert "gemma3" in client.ollama_model
         assert client.timeout == 120
         
     def test_llm_not_available_graceful(self):

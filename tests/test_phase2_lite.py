@@ -161,7 +161,7 @@ def test_auto_tag_concept():
 def test_llm_initialization():
     """Test LLM client initialization"""
     client = LLMClient()
-    assert client.ollama_model == "gemma:7b"
+    assert "gemma3" in client.ollama_model
     assert client.timeout == 120
 
 

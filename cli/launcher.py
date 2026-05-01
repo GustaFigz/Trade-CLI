@@ -1,246 +1,261 @@
 """
 Trade-CLI Launcher — Interface profissional do terminal.
-Inspirado em Claude Code, OpenCode e Copilot CLI.
-Splash animado + REPL interactivo + painel de estado.
+Modo primário: chat interactivo com especialista em Forex.
+Modo secundário: comandos directos (tradecli analyze EURUSD H1).
+
+Design inspirado em Claude Code e OpenCode.
+Cores semânticas, animações Rich, REPL persistente.
 
 Fase: 2.3
 Data: 2026-05-01
 """
 from __future__ import annotations
 
+import os
 import sys
 import time
-import os
 from pathlib import Path
-from typing import Optional
 
+import structlog
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 from rich.live import Live
-from rich.layout import Layout
 from rich.table import Table
 from rich.align import Align
-from rich.columns import Columns
-from rich.prompt import Prompt
-from rich.spinner import Spinner
 from rich.rule import Rule
+from rich.spinner import Spinner
 from rich import box
-from rich.style import Style
+from rich.markdown import Markdown
 
-console = Console()
+log = structlog.get_logger(__name__)
+console = Console(highlight=False)
 
-# ── Paleta de cores Trade-CLI ──────────────────────────────────────────────────
-ACCENT = "bright_cyan"
-DIM = "dim white"
-SUCCESS = "bright_green"
-WARNING = "bright_yellow"
-DANGER = "bright_red"
-MUTED = "grey58"
-HEADER_BG = "on black"
+# ─── Paleta de cores ───────────────────────────────────────────────────────────
+C_ACCENT  = "bright_cyan"
+C_DIM     = "dim white"
+C_OK      = "bright_green"
+C_WARN    = "bright_yellow"
+C_ERR     = "bright_red"
+C_MUTED   = "grey54"
+C_BRAND   = "bold bright_cyan"
 
-# ── ASCII Art do Trade-CLI ─────────────────────────────────────────────────────
-LOGO_COMPACT = """
- ▀█▀ █▀█ ▄▀█ █▀▄ █▀▀   █▀▀ █░░ █
- ░█░ █▀▄ █▀█ █▄▀ ██▄   █▄▄ █▄▄ █
-"""
+# ─── Logo ASCII ────────────────────────────────────────────────────────────────
+LOGO = """\
+ ████████╗██████╗  █████╗ ██████╗ ███████╗ ██████╗██╗     ██╗
+    ██╔══╝██╔══██╗██╔══██╗██╔══██╗██╔════╝██╔════╝██║     ██║
+    ██║   ██████╔╝███████║██║  ██║█████╗  ██║     ██║     ██║
+    ██║   ██╔══██╗██╔══██║██║  ██║██╔══╝  ██║     ██║     ██║
+    ██║   ██║  ██║██║  ██║██████╔╝███████╗╚██████╗███████╗██║
+    ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ ╚══════╝ ╚═════╝╚══════╝╚═╝"""
 
-TAGLINE = "Local AI Copilot for Forex Trading Decisions"
-VERSION = "v0.2.0-phase2"
+VERSION = os.getenv("TRADECLI_VERSION", "0.2.0")
+TAGLINE = "Local AI Specialist · Forex Trading · 100% Offline"
 
+
+# ─── Helpers de estado ─────────────────────────────────────────────────────────
+
+def _check_ollama() -> tuple[bool, str]:
+    try:
+        import httpx
+        base = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        model = os.getenv("OLLAMA_MODEL", "gemma3:latest")
+        r = httpx.get(f"{base}/api/tags", timeout=2.0)
+        if r.status_code == 200:
+            models = [m["name"] for m in r.json().get("models", [])]
+            if any(model.split(":")[0] in m for m in models):
+                return True, f"Ollama · {model}"
+            return False, f"Ollama up mas {model} não instalado"
+        return False, "Ollama sem resposta"
+    except Exception:
+        return False, "Ollama offline"
+
+
+def _check_db() -> tuple[bool, str]:
+    db = Path(os.getenv("DB_PATH", "database.db"))
+    return db.exists(), "SQLite OK" if db.exists() else "Não inicializado (run: init)"
+
+
+def _check_vault() -> tuple[bool, str]:
+    vault = Path(os.getenv("OBSIDIAN_VAULT_PATH", "./Trade-CLI-Vault"))
+    ok = vault.exists() and (vault / "00-meta").exists()
+    return ok, "Vault OK" if ok else "Vault não encontrado"
+
+
+def _check_mock() -> tuple[bool, str]:
+    mock = os.getenv("MOCK_DATA", "true").lower() == "true"
+    return True, "Mock (dados simulados)" if mock else "MT5 (dados reais)"
+
+
+# ─── Render functions ──────────────────────────────────────────────────────────
 
 def render_splash() -> None:
-    """Animação de entrada — estilo Claude Code."""
+    """Animação de entrada linha a linha — estilo Claude Code."""
     console.clear()
+    lines = LOGO.split("\n")
+    built = Text()
 
-    # Frame 1: logo aparece linha a linha
-    logo_lines = LOGO_COMPACT.strip().split("\n")
-    rendered = Text()
-    for i, line in enumerate(logo_lines):
-        time.sleep(0.08)
-        rendered.append(line + "\n", style=f"bold {ACCENT}")
+    for line in lines:
+        built.append(line + "\n", style=C_BRAND)
         console.clear()
-        header = Panel(
-            Align.center(rendered),
-            border_style=ACCENT,
-            padding=(0, 4),
+        console.print(
+            Panel(
+                Align.center(built),
+                border_style=C_ACCENT,
+                padding=(0, 2),
+            )
         )
-        console.print(header)
+        time.sleep(0.06)
 
-    # Frame 2: tagline e versão
-    time.sleep(0.15)
+    # Tagline e versão
+    time.sleep(0.1)
     console.clear()
-
-    logo_text = Text(LOGO_COMPACT.strip(), style=f"bold {ACCENT}")
-    tagline_text = Text(f"\n  {TAGLINE}", style=f"italic {MUTED}")
-    version_text = Text(f"  {VERSION}", style=f"dim {ACCENT}")
-
-    panel = Panel(
-        Align.center(
-            Text.assemble(logo_text, tagline_text, "\n", version_text)
-        ),
-        border_style=ACCENT,
-        padding=(1, 4),
-        subtitle=Text("  Iniciando...", style=DIM),
+    full = Text.assemble(
+        (LOGO + "\n", C_BRAND),
+        (f"\n  {TAGLINE}\n", f"italic {C_MUTED}"),
+        (f"  v{VERSION}", f"dim {C_ACCENT}"),
     )
-    console.print(panel)
-    time.sleep(0.3)
+    console.print(Panel(Align.center(full), border_style=C_ACCENT, padding=(1, 2)))
+    time.sleep(0.25)
 
 
-def render_status_bar() -> Table:
-    """Painel de estado do sistema."""
-    table = Table(box=box.SIMPLE, show_header=False, padding=(0, 1))
-    table.add_column(style=MUTED, no_wrap=True)
-    table.add_column(style="white", no_wrap=True)
-    table.add_column(style=MUTED, no_wrap=True)
-    table.add_column(style="white", no_wrap=True)
+def render_status_panel() -> Table:
+    """Tabela de estado dos serviços."""
+    t = Table(box=None, show_header=False, padding=(0, 2), expand=False)
+    t.add_column(style=C_MUTED, no_wrap=True, min_width=8)
+    t.add_column(no_wrap=True)
 
-    # Verificar estado real dos serviços
-    ollama_ok = _check_ollama()
-    db_ok = _check_database()
-    vault_ok = _check_vault()
-
-    ollama_str = (
-        Text("● Ollama OK", style=SUCCESS) if ollama_ok
-        else Text("○ Ollama offline", style=WARNING)
-    )
-    db_str = (
-        Text("● DB OK", style=SUCCESS) if db_ok
-        else Text("○ DB não inicializado", style=WARNING)
-    )
-    vault_str = (
-        Text("● Vault OK", style=SUCCESS) if vault_ok
-        else Text("○ Vault não encontrado", style=DANGER)
-    )
-
-    table.add_row(
-        "LLM", ollama_str,
-        "DB", db_str,
-    )
-    table.add_row(
-        "Vault", vault_str,
-        "Dados", Text("mock", style=WARNING),
-    )
-    return table
-
-
-def render_help_panel() -> Panel:
-    """Painel de comandos disponíveis — estilo Claude Code."""
-    table = Table(box=None, show_header=False, padding=(0, 2), expand=True)
-    table.add_column(style=f"bold {ACCENT}", min_width=22)
-    table.add_column(style=DIM)
-
-    commands = [
-        ("analyze <SYMBOL> <TF>", "Analisar setup de trading"),
-        ("analyze EURUSD H1", "Exemplo com EURUSD"),
-        ("train --file <FILE>", "Alimentar base de conhecimento"),
-        ("knowledge search <query>", "Pesquisar na KB"),
-        ("outcome --id <ID>", "Registar resultado de análise"),
-        ("review weekly", "Revisão semanal assistida"),
-        ("health", "Estado de todos os serviços"),
-        ("init", "Inicializar vault + base de dados"),
-        ("help", "Mostrar esta ajuda"),
-        ("exit / quit", "Sair do Trade-CLI"),
+    checks = [
+        ("LLM",   _check_ollama()),
+        ("DB",    _check_db()),
+        ("Vault", _check_vault()),
+        ("Dados", _check_mock()),
     ]
+    for label, (ok, msg) in checks:
+        status = Text.assemble(
+            ("● " if ok else "○ ", C_OK if ok else C_WARN),
+            (msg, "white" if ok else C_WARN),
+        )
+        t.add_row(label, status)
+    return t
 
-    for cmd, desc in commands:
-        table.add_row(f"  {cmd}", desc)
 
-    return Panel(
-        table,
-        title=Text("  Comandos", style=f"bold {ACCENT}"),
-        border_style=MUTED,
-        padding=(0, 1),
-    )
+def render_help() -> Table:
+    """Tabela de comandos disponíveis."""
+    t = Table(box=None, show_header=False, padding=(0, 2), expand=True)
+    t.add_column(style=f"bold {C_ACCENT}", min_width=32, no_wrap=True)
+    t.add_column(style=C_DIM)
+
+    cmds = [
+        # Chat
+        ("  [chat] qualquer pergunta",      "Pergunta directamente ao especialista"),
+        ("  O que achas do EURUSD agora?",  "Exemplo de chat com contexto"),
+        ("",                                 ""),
+        # Análise
+        ("  analyze <SYMBOL> <TF>",          "Análise completa com engines + LLM"),
+        ("  analyze EURUSD H1",              "Exemplo com EURUSD"),
+        ("  analyze USDJPY M15 --fast",      "Análise rápida sem síntese LLM"),
+        ("",                                 ""),
+        # Conhecimento
+        ("  train --file <ficheiro>",        "Ensinar um PDF/MD ao sistema"),
+        ("  train --text \"...\"",           "Ensinar texto directamente"),
+        ("  knowledge search <query>",       "Pesquisar na base de conhecimento"),
+        ("",                                 ""),
+        # Gestão
+        ("  outcome --id <ID> --result ...", "Registar resultado de uma análise"),
+        ("  review weekly",                  "Revisão semanal assistida por IA"),
+        ("  history",                        "Últimas 10 análises"),
+        ("",                                 ""),
+        # Sistema
+        ("  health",                         "Estado detalhado de todos os serviços"),
+        ("  models",                         "Modelos Ollama disponíveis"),
+        ("  init",                           "Inicializar vault + base de dados"),
+        ("  clear",                          "Limpar ecrã"),
+        ("  exit / quit",                    "Sair"),
+    ]
+    for cmd, desc in cmds:
+        t.add_row(cmd, desc)
+    return t
 
 
 def render_main_screen() -> None:
-    """Ecrã principal após o splash."""
+    """Ecrã principal completo."""
     console.clear()
 
-    # Header
-    header_text = Text.assemble(
-        ("  TRADE", f"bold {ACCENT}"),
-        ("-", f"bold {MUTED}"),
-        ("CLI  ", f"bold {ACCENT}"),
-        (f"{VERSION}  ", f"dim {MUTED}"),
-        ("EURUSD · USDJPY · USDCAD · US30 · NAS100", MUTED),
+    # Header compacto
+    header = Text.assemble(
+        ("  TRADE", C_BRAND),
+        ("-", f"bold {C_MUTED}"),
+        ("CLI  ", C_BRAND),
+        (f"v{VERSION}  ", f"dim {C_MUTED}"),
+        ("EURUSD · USDJPY · USDCAD · US30 · NAS100", C_MUTED),
     )
-    console.print(Panel(header_text, border_style=ACCENT, height=3))
+    console.print(Panel(header, border_style=C_ACCENT, height=3))
 
-    # Status bar
-    console.print(render_status_bar())
-    console.print(Rule(style=MUTED))
+    # Status
+    console.print(render_status_panel())
+    console.print(Rule(style=C_MUTED))
 
-    # Help panel
-    console.print(render_help_panel())
-    console.print(Rule(style=MUTED))
+    # Help
+    console.print(render_help())
+    console.print(Rule(style=C_MUTED))
 
-    # Prompt hint
+    # Dica inicial
     console.print(
         Text.assemble(
-            ("  Escreve um comando ou ", MUTED),
-            ("help", f"bold {ACCENT}"),
-            (" para começar. ", MUTED),
-            ("Ctrl+C ou exit para sair.", DIM),
+            ("  Escreve uma pergunta, um comando, ou ", C_MUTED),
+            ("help", f"bold {C_ACCENT}"),
+            (" para começar.  ", C_MUTED),
+            ("Ctrl+C para sair.", C_DIM),
         )
     )
     console.print()
 
 
-def _check_ollama() -> bool:
-    """Check if Ollama server is reachable."""
-    try:
-        import httpx
-        base = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        r = httpx.get(f"{base}/api/tags", timeout=2)
-        return r.status_code == 200
-    except Exception:
-        return False
+# ─── Output helpers ────────────────────────────────────────────────────────────
 
-
-def _check_database() -> bool:
-    """Check if database file exists."""
-    return Path("database.db").exists()
-
-
-def _check_vault() -> bool:
-    """Check if Obsidian vault exists with proper structure."""
-    vault = Path(os.getenv("OBSIDIAN_VAULT_PATH", "./Trade-CLI-Vault"))
-    return vault.exists() and (vault / "00-meta").exists()
-
-
-def print_analyzing(symbol: str, timeframe: str) -> None:
-    """Indicador de análise em curso — animado."""
-    with Live(
-        Spinner("dots", text=Text(f"  Analisando {symbol} {timeframe}...", style=ACCENT)),
+def print_thinking(message: str = "A pensar...") -> Live:
+    """Spinner durante processamento — retorna o Live para controlo externo."""
+    return Live(
+        Spinner("dots2", text=Text(f"  {message}", style=C_ACCENT)),
         console=console,
-        refresh_per_second=10,
-    ) as live:
-        time.sleep(1.5)  # será substituído pelo tempo real de análise
+        refresh_per_second=12,
+        transient=True,
+    )
+
+
+def print_assistant_response(content: str, model: str = "", ms: float = 0) -> None:
+    """Renderiza resposta do especialista com Markdown."""
+    footer = ""
+    if model:
+        footer = f"  {model}"
+    if ms:
+        footer += f"  ·  {ms:.0f}ms"
+
     console.print(
-        Text.assemble(
-            ("  ✓ ", SUCCESS),
-            (f"Análise {symbol} {timeframe} ", "white"),
-            ("concluída", SUCCESS),
+        Panel(
+            Markdown(content),
+            title=Text("  Especialista", style=f"bold {C_ACCENT}"),
+            subtitle=Text(footer, style=C_DIM) if footer else None,
+            border_style=C_ACCENT,
+            padding=(0, 2),
         )
     )
 
 
-def print_verdict(verdict: str, reason: str) -> None:
-    """Renderiza o veredito da análise com cor e estilo."""
+def print_verdict(verdict: str, reason: str, symbol: str = "") -> None:
+    """Painel de veredito colorido."""
     styles = {
-        "allowed": (SUCCESS, "ALLOWED", "✓"),
-        "watch_only": (WARNING, "WATCH ONLY", "◈"),
-        "blocked": (DANGER, "BLOCKED", "✗"),
+        "allowed":    (C_OK,   "ALLOWED",    "✓"),
+        "watch_only": (C_WARN, "WATCH ONLY", "◈"),
+        "blocked":    (C_ERR,  "BLOCKED",    "✗"),
     }
-    color, label, icon = styles.get(verdict.lower(), (MUTED, verdict.upper(), "?"))
+    color, label, icon = styles.get(verdict.lower(), (C_MUTED, verdict.upper(), "?"))
+    title = f"  {icon} {label}" + (f"  ·  {symbol}" if symbol else "")
     console.print(
         Panel(
-            Text.assemble(
-                (f"  {icon} {label}\n", f"bold {color}"),
-                (f"  {reason}", MUTED),
-            ),
+            Text(f"  {reason}", style=C_MUTED),
+            title=Text(title, style=f"bold {color}"),
             border_style=color,
             padding=(0, 1),
         )
@@ -248,119 +263,181 @@ def print_verdict(verdict: str, reason: str) -> None:
 
 
 def print_engine_scores(scores: dict[str, float]) -> None:
-    """Renderiza scores dos engines com barras de progresso visuais."""
-    console.print(Rule("  Engine Scores", style=MUTED))
+    """Barras de progresso para scores dos engines."""
+    console.print(Rule("  Engine Scores", style=C_MUTED))
     for engine, score in scores.items():
         pct = int(score * 100)
-        bar = "█" * (pct // 5) + "░" * (20 - pct // 5)
-        color = SUCCESS if pct >= 70 else WARNING if pct >= 50 else DANGER
+        filled = int(pct / 5)
+        bar = "█" * filled + "░" * (20 - filled)
+        color = C_OK if pct >= 70 else C_WARN if pct >= 50 else C_ERR
         console.print(
             Text.assemble(
-                (f"  {engine:<20}", MUTED),
-                (f" {bar} ", color),
-                (f" {pct:3d}%", f"bold {color}"),
+                (f"  {engine:<22}", C_MUTED),
+                (bar, color),
+                (f"  {pct:3d}%", f"bold {color}"),
             )
         )
     console.print()
 
 
+def print_error(msg: str) -> None:
+    console.print(Text.assemble(("  ✗  ", C_ERR), (msg, "white")))
+
+
+def print_success(msg: str) -> None:
+    console.print(Text.assemble(("  ✓  ", C_OK), (msg, "white")))
+
+
+def print_info(msg: str) -> None:
+    console.print(Text.assemble(("  ·  ", C_ACCENT), (msg, C_MUTED)))
+
+
+def print_analyzing(symbol: str, timeframe: str) -> None:
+    """Indicador de análise em curso — animado."""
+    with Live(
+        Spinner("dots", text=Text(f"  Analisando {symbol} {timeframe}...", style=C_ACCENT)),
+        console=console,
+        refresh_per_second=10,
+    ) as live:
+        time.sleep(1.5)  # será substituído pelo tempo real de análise
+    print_success(f"Análise {symbol} {timeframe} concluída")
+
+
+# ─── Boot sequence ─────────────────────────────────────────────────────────────
+
+def boot_sequence() -> None:
+    """Sequência de boot animada após o splash."""
+    steps = [
+        ("Carregando configuração",         0.2),
+        ("Conectando à base de dados",      0.25),
+        ("Verificando vault Obsidian",      0.2),
+        ("Verificando Ollama",              0.35),
+        ("Inicializando engines",           0.2),
+        ("Sistema pronto",                  0.1),
+    ]
+    with Live(console=console, refresh_per_second=10, transient=True) as live:
+        for step, delay in steps:
+            live.update(Spinner("dots", text=Text(f"  {step}...", style=C_ACCENT)))
+            time.sleep(delay)
+
+
+# ─── REPL principal ────────────────────────────────────────────────────────────
+
 def start_repl() -> None:
-    """REPL interactivo — o coração da interface."""
+    """
+    REPL interactivo — coração da interface.
+    Modo primário: chat com o especialista.
+    Comandos conhecidos: analyze, train, knowledge, health, etc.
+    """
+    from orchestrator.chat_engine import ChatEngine
+
+    chat_engine = ChatEngine()
     render_main_screen()
+
+    # Comandos que vão directamente para o Typer CLI
+    CLI_COMMANDS = {
+        "analyze", "train", "knowledge", "outcome",
+        "review", "history", "health", "init", "db-setup",
+        "show", "version", "models", "assets", "tui",
+    }
 
     while True:
         try:
-            # Prompt customizado — estilo Claude Code
             raw = console.input(
                 Text.assemble(
-                    ("  tradecli", f"bold {ACCENT}"),
-                    (" > ", MUTED),
+                    ("\n  tradecli", C_BRAND),
+                    (" › ", C_MUTED),
                 ).plain
             ).strip()
 
             if not raw:
                 continue
 
-            if raw.lower() in ("exit", "quit", "q", "sair"):
+            cmd = raw.lower().split()[0] if raw.split() else ""
+
+            # Sair
+            if cmd in ("exit", "quit", "q", "sair", "bye"):
                 console.print(
-                    Text.assemble(
-                        ("\n  Até já. ", MUTED),
-                        ("Bons trades.\n", f"bold {ACCENT}"),
-                    )
+                    Text.assemble(("\n  Até já. ", C_MUTED), ("Bons trades.\n", C_BRAND))
                 )
                 break
 
-            if raw.lower() == "help":
-                console.print(render_help_panel())
-                continue
-
-            if raw.lower() == "clear":
+            # Limpar
+            if cmd == "clear":
                 render_main_screen()
                 continue
 
-            # Passar o comando para o Typer CLI
-            parts = raw.split()
-            try:
-                from click.testing import CliRunner
-                from typer import main as typer_main
+            # Help
+            if cmd == "help":
+                console.print(render_help())
+                continue
 
-                # Import the app from cli.main
-                from cli.main import app as cli_app
+            # Comandos CLI directos (Typer)
+            if cmd in CLI_COMMANDS:
+                _run_cli_command(raw.split())
+                continue
 
-                # Convert Typer app to Click app for testing
-                click_app = typer_main.get_command(cli_app)
-                runner = CliRunner(mix_stderr=False)
-                result = runner.invoke(click_app, parts, catch_exceptions=False)
-                if result.output:
-                    console.print(result.output, end="")
-                if result.exit_code != 0 and result.exception:
-                    console.print(
-                        Text(f"  Erro: {result.exception}", style=DANGER)
-                    )
-            except SystemExit:
-                pass
-            except Exception as e:
-                console.print(Text(f"  ✗ Erro: {e}", style=DANGER))
+            # Tudo o resto → chat com o especialista
+            with print_thinking("A consultar conhecimento..."):
+                response = chat_engine.chat(raw)
+
+            print_assistant_response(
+                response.content,
+                model=response.model,
+                ms=response.duration_ms,
+            )
 
         except KeyboardInterrupt:
             console.print(
                 Text.assemble(
-                    ("\n\n  Interrompido. ", MUTED),
-                    ("Usa exit para sair correctamente.\n", DIM),
+                    ("\n\n  Ctrl+C detectado. ", C_MUTED),
+                    ("Escreve exit para sair correctamente.\n", C_DIM),
                 )
             )
         except EOFError:
             break
+        except Exception as e:
+            print_error(f"Erro inesperado: {e}")
+            log.error("repl_error", error=str(e))
 
+
+def _run_cli_command(parts: list[str]) -> None:
+    """Executa um comando Typer dentro do REPL."""
+    from typer import main as typer_main
+    from click.testing import CliRunner
+    from cli.main import app
+
+    click_app = typer_main.get_command(app)
+    runner = CliRunner(mix_stderr=False)
+    try:
+        result = runner.invoke(click_app, parts, catch_exceptions=False)
+        if result.output:
+            console.print(result.output, end="")
+        if result.exit_code != 0:
+            print_error(f"Comando falhou com código {result.exit_code}")
+    except SystemExit:
+        pass
+    except Exception as e:
+        print_error(str(e))
+
+
+# ─── Entry point ───────────────────────────────────────────────────────────────
 
 def main() -> None:
-    """Entry point do launcher Trade-CLI."""
-    # Se há argumentos, executar directamente (modo comando)
+    """
+    Entry point do Trade-CLI.
+    Com argumentos → executa comando directamente.
+    Sem argumentos → launcher interactivo com splash.
+    """
     if len(sys.argv) > 1:
+        # Modo comando directo: tradecli analyze EURUSD H1
         from cli.main import app
         app()
         return
 
-    # Modo launcher interactivo
+    # Modo interactivo
     render_splash()
-    time.sleep(0.2)
-
-    # Boot sequence animado
-    with Live(console=console, refresh_per_second=8) as live:
-        steps = [
-            ("Carregando configuração", 0.3),
-            ("Verificando base de dados", 0.3),
-            ("Conectando ao vault Obsidian", 0.3),
-            ("Verificando Ollama", 0.4),
-            ("Iniciando engines analíticos", 0.3),
-            ("Trade-CLI pronto", 0.2),
-        ]
-        for step, delay in steps:
-            live.update(
-                Spinner("dots", text=Text(f"  {step}...", style=ACCENT))
-            )
-            time.sleep(delay)
-
+    boot_sequence()
     start_repl()
 
 

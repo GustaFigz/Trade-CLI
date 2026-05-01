@@ -19,6 +19,18 @@ from dataclasses import dataclass
 from typing import Dict, Any, Optional
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# Module-level constants
+# ═══════════════════════════════════════════════════════════════════════════════
+
+SUPPORTED_SYMBOLS = {"EURUSD", "USDJPY", "USDCAD", "US30", "NAS100"}
+
+TF_MINUTES = {
+    "M1": 1, "M5": 5, "M15": 15, "M30": 30,
+    "H1": 60, "H4": 240, "D1": 1440, "W1": 10080,
+}
+
+
 @dataclass
 class MarketBar:
     """Single OHLCV bar."""
@@ -60,8 +72,8 @@ class MockDataProvider:
         "EURUSD": 0.0005,
         "USDJPY": 0.08,
         "USDCAD": 0.0006,
-        "US30": 50.0,
-        "NAS100": 80.0,
+        "US30": 55.0,
+        "NAS100": 90.0,
     }
 
     SPREADS: Dict[str, float] = {
@@ -79,20 +91,21 @@ class MockDataProvider:
         count: int = 200,
     ) -> pd.DataFrame:
         """Gera barras OHLCV realistas com tendência simulada."""
-        if symbol not in self.BASE_PRICES:
+        if symbol not in SUPPORTED_SYMBOLS:
             raise ValueError(
-                f"Símbolo {symbol} não suportado. "
-                f"Usar: {list(self.BASE_PRICES.keys())}"
+                f"Símbolo '{symbol}' não suportado. "
+                f"Símbolos válidos: {sorted(SUPPORTED_SYMBOLS)}"
+            )
+        if timeframe not in TF_MINUTES:
+            raise ValueError(
+                f"Timeframe '{timeframe}' não reconhecido. "
+                f"Válidos: {sorted(TF_MINUTES.keys())}"
             )
 
+        np.random.seed(hash(symbol + timeframe) % 2**31)
         price = self.BASE_PRICES[symbol]
         vol = self.VOLATILITY[symbol]
-
-        tf_minutes = {
-            "M1": 1, "M5": 5, "M15": 15,
-            "H1": 60, "H4": 240, "D1": 1440,
-        }
-        minutes = tf_minutes.get(timeframe, 60)
+        minutes = TF_MINUTES[timeframe]
 
         now = datetime.utcnow()
         timestamps = [

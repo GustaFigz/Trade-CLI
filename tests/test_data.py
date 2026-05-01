@@ -1,12 +1,12 @@
 """
-Tests for data providers — Fase 2.
+Tests for data providers — Fase 2.3.
 Tests MockDataProvider class and backward-compatible functions.
 
 Fase: 2.3
 Data: 2026-05-01
 """
 import pytest
-from data.mock_data import MockDataProvider, get_mock_bars, get_mock_account_state
+from data.mock_data import MockDataProvider, SUPPORTED_SYMBOLS, TF_MINUTES, get_mock_bars, get_mock_account_state
 
 
 class TestMockDataProvider:
@@ -38,17 +38,33 @@ class TestMockDataProvider:
         with pytest.raises(ValueError, match="não suportado"):
             provider.get_bars("NZDUSD", "H1")
 
+    def test_unknown_symbol_raises(self):
+        provider = MockDataProvider()
+        with pytest.raises(ValueError):
+            provider.get_bars("GBPCHF", "H1")
+
     def test_all_supported_symbols(self):
         provider = MockDataProvider()
-        for symbol in ["EURUSD", "USDJPY", "USDCAD", "US30", "NAS100"]:
+        for symbol in SUPPORTED_SYMBOLS:
             bars = provider.get_bars(symbol, "H1", count=10)
             assert len(bars) == 10
 
     def test_different_timeframes(self):
         provider = MockDataProvider()
-        for tf in ["M1", "M5", "M15", "H1", "H4", "D1"]:
+        for tf in ["M1", "M5", "M15", "M30", "H1", "H4", "D1"]:
             bars = provider.get_bars("EURUSD", tf, count=5)
             assert len(bars) == 5
+
+    def test_w1_timeframe(self):
+        """W1 timeframe should work."""
+        provider = MockDataProvider()
+        bars = provider.get_bars("EURUSD", "W1", count=5)
+        assert len(bars) == 5
+
+    def test_invalid_timeframe_rejected(self):
+        provider = MockDataProvider()
+        with pytest.raises(ValueError, match="não reconhecido"):
+            provider.get_bars("EURUSD", "H99")
 
     def test_account_state(self):
         provider = MockDataProvider()
@@ -74,6 +90,18 @@ class TestMockDataProvider:
         for count in [1, 10, 50, 200]:
             bars = provider.get_bars("EURUSD", "H1", count=count)
             assert len(bars) == count
+
+    def test_supported_symbols_set(self):
+        """SUPPORTED_SYMBOLS should be a set with 5 elements."""
+        assert isinstance(SUPPORTED_SYMBOLS, set)
+        assert len(SUPPORTED_SYMBOLS) == 5
+        assert "EURUSD" in SUPPORTED_SYMBOLS
+        assert "NZDUSD" not in SUPPORTED_SYMBOLS
+
+    def test_tf_minutes_has_m30_w1(self):
+        """TF_MINUTES should include M30 and W1."""
+        assert "M30" in TF_MINUTES
+        assert "W1" in TF_MINUTES
 
 
 class TestBackwardCompatFunctions:

@@ -74,8 +74,14 @@ chat-*.md
 # Build artifacts
 *.pyc
 *.pyd
+*.so
 .mypy_cache/
 .ruff_cache/
+
+# Imagens geradas e artefactos
+architecture-status.png
+*.png
+!docs/images/*.png
 
 # Caches de vectores RAG
 knowledge/index/
