@@ -349,7 +349,7 @@ if __name__ == "__main__":
     
     # Create analysis (synthesized from engines)
     analysis = AnalysisOutput(
-        symbol="NZDUSD",
+        symbol="EURUSD",
         timeframe="M15",
         bias=BiaType.BULLISH,
         setup_type="liquidity_sweep_reclaim",

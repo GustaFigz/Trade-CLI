@@ -1,0 +1,146 @@
+/* Trade-CLI TUI Theme
+   Dark terminal theme with trading colour palette.
+   Phase 3 TUI — 2026-05-01 */
+
+/* ── Global ── */
+Screen {
+    background: #0d0d0d;
+    color: #e0e0e0;
+}
+
+/* ── Header ── */
+#header {
+    height: 1;
+    background: #111111;
+    color: #00e676;
+    border-bottom: solid #1a1a1a;
+    text-align: center;
+    text-style: bold;
+}
+
+/* ── Sidebar ── */
+#sidebar {
+    width: 20;
+    background: #0a0a0a;
+    border-right: solid #1e1e1e;
+    padding: 0 1;
+}
+
+#sidebar .section-title {
+    color: #555555;
+    text-style: bold;
+    margin-top: 1;
+}
+
+#sidebar .asset-item {
+    color: #aaaaaa;
+    padding: 0 0 0 1;
+}
+
+#sidebar .asset-item:hover {
+    background: #1a1a1a;
+    color: #00e676;
+}
+
+#sidebar .asset-item.active {
+    color: #00e676;
+    text-style: bold;
+}
+
+/* ── Main Panel ── */
+#main-panel {
+    background: #0d0d0d;
+    border: solid #1e1e1e;
+    padding: 1;
+}
+
+/* ── Right Panel ── */
+#right-panel {
+    width: 28;
+    background: #0a0a0a;
+    border-left: solid #1e1e1e;
+    padding: 1;
+}
+
+/* ── Engine Score Bars ── */
+.engine-name {
+    color: #888888;
+    width: 12;
+}
+
+.engine-bar-high   { color: #00c853; }
+.engine-bar-medium { color: #ffd600; }
+.engine-bar-low    { color: #ff1744; }
+
+/* ── Verdict Panel ── */
+#verdict-allowed {
+    background: #003300;
+    color: #00e676;
+    border: solid #00c853;
+    text-align: center;
+    text-style: bold;
+    padding: 1;
+    margin: 1 0;
+}
+
+#verdict-blocked {
+    background: #330000;
+    color: #ff5252;
+    border: solid #ff1744;
+    text-align: center;
+    text-style: bold;
+    padding: 1;
+    margin: 1 0;
+}
+
+#verdict-watch {
+    background: #332200;
+    color: #ffd600;
+    border: solid #ffd600;
+    text-align: center;
+    text-style: bold;
+    padding: 1;
+    margin: 1 0;
+}
+
+/* ── Input Bar ── */
+#input-bar {
+    height: 3;
+    background: #111111;
+    border-top: solid #1e1e1e;
+    border: solid #333333;
+    color: #00e676;
+}
+
+#input-bar:focus {
+    border: solid #00e676;
+}
+
+/* ── Footer ── */
+#footer {
+    height: 1;
+    background: #0a0a0a;
+    color: #444444;
+    text-align: right;
+    border-top: solid #1a1a1a;
+}
+
+/* ── Candle Chart ── */
+#candle-chart {
+    background: #080808;
+    border: solid #1a1a1a;
+    padding: 1;
+    min-height: 12;
+}
+
+/* ── Section Headers ── */
+.section-label {
+    color: #444444;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+/* ── Health Indicators ── */
+.health-ok   { color: #00c853; }
+.health-warn { color: #ffd600; }
+.health-err  { color: #ff1744; }

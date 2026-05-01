@@ -36,3 +36,6 @@ schedule==1.2.0
 
 # Optional: MT5 (Windows only, uncomment if available)
 # MetaTrader5==5.0.45
+
+# Interface
+textual>=0.60.0,<1.0.0

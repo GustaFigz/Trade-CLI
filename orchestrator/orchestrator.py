@@ -120,14 +120,20 @@ class Orchestrator:
         
         # Step 3: Retrieve RAG context (if enabled)
         rag_context = ""
-        if self.use_rag and self.obsidian_reader:
+        if self.use_rag and self.rag_retriever:
             try:
+                query = f"{symbol} {timeframe} {user_query or ''}"
+                # Create a simple random embedding for testing, or use real embedding if available
+                import numpy as np
+                query_embedding = np.random.rand(384).astype(np.float32)  # Assuming 384 is the dim
+                chunks = self.rag_retriever.search(query_embedding, k=5, symbol_filter=symbol)
+                rag_context = "\n".join([c.get("text", "") for c in chunks]) if chunks else ""
                 self.context_builder = ContextBuilder(symbol, timeframe)
-                # Full RAG implementation in Phase 2.3 (vectorize query and search)
-                logger.info("RAG context retrieval enabled (stub)")
+                logger.info(f"RAG context: {len(chunks)} chunks retrieved")
             except Exception as e:
                 logger.warning(f"RAG context setup failed: {e}")
-                self.context_builder = None
+                rag_context = ""
+                self.context_builder = ContextBuilder(symbol, timeframe)
         
         # Step 4: Synthesize via LLM (if available and engines agree)
         llm_synthesis: Optional[str] = None

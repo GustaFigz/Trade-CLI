@@ -41,6 +41,26 @@ class RiskGuardian:
         self.current_total_loss_pct = 0.0  # Placeholder
         self.trades_today = 0               # Placeholder
         self.open_positions = {}            # Dict of {symbol: position}
+        self._load_state_from_db()
+    
+    def _load_state_from_db(self, db_path: str = "database.db") -> None:
+        """Load current session state from SQLite."""
+        try:
+            import sqlite3
+            from datetime import date
+            conn = sqlite3.connect(db_path)
+            today = date.today().isoformat()
+            # Query daily analyses count and any stored loss tracking
+            cursor = conn.execute(
+                "SELECT COUNT(*) FROM analysis_sessions WHERE DATE(created_at) = ?",
+                (today,)
+            )
+            row = cursor.fetchone()
+            if row:
+                self.trades_today = row[0]
+            conn.close()
+        except Exception:
+            pass  # Graceful: if DB not ready, use defaults
     
     def _load_rules(self, rules_path: str) -> Dict[str, Any]:
         """Load FTMO rules from YAML file."""
@@ -214,7 +234,7 @@ class RiskGuardian:
             }
         return {'ok': True, 'reason': ''}
     
-    def _check_risk_per_trade(self, analysis: AnalysisOutput) -> Dict[str, Any]:
+    def _check_risk_per_trade(self, analysis: AnalysisOutput, proposed_risk_pct: float = 0.75) -> Dict[str, Any]:
         """
         Check if proposed risk respects FTMO limits.
         
@@ -222,15 +242,17 @@ class RiskGuardian:
         In Phase 2, this will calculate actual risk from entry/stop.
         """
         max_risk = self.rules['risk_per_trade']['max_risk_percent']
+        min_risk = self.rules['risk_per_trade']['min_risk_percent']
         
-        # Placeholder: Assume conservative 0.5% for now
-        # In Phase 2: proposed_risk = (stop_loss_pips / account_balance) * 100
-        proposed_risk = 0.75  # Mock value
-        
-        if proposed_risk > max_risk:
+        if proposed_risk_pct > max_risk:
             return {
                 'ok': False,
-                'reason': f"Proposed risk {proposed_risk}% > {max_risk}% limit",
+                'reason': f"Proposed risk {proposed_risk_pct}% > {max_risk}% FTMO limit",
+            }
+        if proposed_risk_pct < min_risk:
+            return {
+                'ok': False,
+                'reason': f"Risk {proposed_risk_pct}% < {min_risk}% minimum (underexposure)",
             }
         return {'ok': True, 'reason': ''}
     
@@ -314,7 +336,7 @@ if __name__ == "__main__":
     
     # Create a test analysis
     analysis_good = AnalysisOutput(
-        symbol="NZDUSD",
+        symbol="EURUSD",
         timeframe="M15",
         bias=BiaType.BULLISH,
         setup_type="liquidity_sweep_reclaim",
@@ -326,7 +348,7 @@ if __name__ == "__main__":
     )
     
     analysis_poor = AnalysisOutput(
-        symbol="NZDUSD",
+        symbol="EURUSD",
         timeframe="M15",
         bias=BiaType.BULLISH,
         setup_type="liquidity_sweep_reclaim",

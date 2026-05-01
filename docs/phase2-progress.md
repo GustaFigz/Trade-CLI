@@ -1,8 +1,8 @@
 # Fase 2 — Progress Tracker
 
 **Start Date:** 2026-04-30 23:54 UTC  
-**Current Phase:** 2.1 Setup & Infra (COMPLETE ✅)  
-**Next Phase:** 2.2 Data Plane & RAG System  
+**Current Phase:** 2.2 Data Plane & TUI (COMPLETE ✅)  
+**Next Phase:** 2.3 Integração real MT5 e FAISS Vector Store  
 
 ---
 

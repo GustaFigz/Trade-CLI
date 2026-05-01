@@ -420,7 +420,27 @@ def train(
     if dry_run:
         console.print("\n[yellow]DRY RUN — nothing written to database[/yellow]")
     else:
-        console.print("\n[dim italic][Phase 2.3] kb_writer integration coming soon[/dim italic]")
+        from training.kb_writer import batch_write_knowledge
+        progress.add_task("Writing to knowledge base...")
+        
+        # Prepare chunks format
+        chunks_data = []
+        for text_chunk in chunks:
+            chunk_data = {
+                'text': text_chunk,
+                'metadata': {
+                    'category': 'educational',
+                    'symbols': [symbol] if symbol else [],
+                    'methods': [topic] if topic else [],
+                    'tags': list(all_tags.keys()),
+                    'confidence': 0.8
+                },
+                'source_file': str(file_path.name)
+            }
+            chunks_data.append(chunk_data)
+            
+        counts = batch_write_knowledge(chunks_data)
+        console.print(f"\n[green]✓[/green] Persisted {counts['db_written']} chunks to SQLite and {counts['obsidian_written']} to Obsidian")
     
     console.print(f"\n[bold green]✓ Training pipeline complete[/bold green]")
 
@@ -569,6 +589,23 @@ def assets():
     tf_config = config.get('timeframes', {})
     primary_tf = tf_config.get('primary_analysis', 'H1')
     console.print(f"\n[dim]Primary timeframe: [bold]{primary_tf}[/bold] | Config: config/assets.yaml[/dim]")
+
+
+# ============================================================================
+# SUBCOMMAND: tui
+# ============================================================================
+
+@app.command()
+def tui():
+    """Iniciar interface TUI (Dashboard Interactivo)."""
+    try:
+        from cli.tui.app import TradeCLIApp
+        app_tui = TradeCLIApp()
+        app_tui.run()
+    except ImportError as e:
+        console.print(f"[red]Error loading TUI: {e}[/red]")
+        console.print("[dim]Make sure textual is installed: pip install textual[/dim]")
+        raise typer.Exit(code=1)
 
 
 # ============================================================================

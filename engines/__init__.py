@@ -49,6 +49,13 @@ class AnalyticalEngine(ABC):
         """
         pass
 
+    def _mock_score_for_symbol(self, symbol: str, timeframe: str, base: float) -> float:
+        """Generate deterministic but varied mock score based on symbol+timeframe."""
+        import hashlib
+        seed = int(hashlib.md5(f"{symbol}{timeframe}".encode()).hexdigest()[:8], 16)
+        variation = (seed % 100) / 1000  # ±0.1 max variation
+        return min(1.0, max(0.0, base + variation - 0.05))
+
 
 # ============================================================================
 # TECHNICAL ENGINE
@@ -85,7 +92,7 @@ class TechnicalEngine(AnalyticalEngine):
         
         # Phase 1: Symbol-agnostic mock data
         # Phase 2.3: Will use bars for real RSI/MA/MACD calculation
-        score = 0.70
+        score = self._mock_score_for_symbol(symbol, timeframe, 0.70)
         explanation = f"Trend analysis for {symbol} on {timeframe} — mock Phase 1"
         evidence = {
             "trend": "bullish",
@@ -137,7 +144,7 @@ class PriceActionEngine(AnalyticalEngine):
         """
         
         # Phase 1: Symbol-agnostic mock data
-        score = 0.55
+        score = self._mock_score_for_symbol(symbol, timeframe, 0.55)
         explanation = f"Price action setup for {symbol} on {timeframe} — awaiting real data"
         evidence = {
             "pattern": "indecision",
@@ -191,7 +198,7 @@ class FundamentalEngine(AnalyticalEngine):
         
         # Phase 1: Neutral mock — no symbol-specific central bank data
         # Phase 2.4: Real macro integration (central banks, events, rates)
-        score = 0.65
+        score = self._mock_score_for_symbol(symbol, timeframe, 0.65)
         explanation = f"Macro context for {symbol} on {timeframe} — neutral mock (Phase 1)"
         evidence = {
             "symbol": symbol,
