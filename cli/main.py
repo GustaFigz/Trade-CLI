@@ -24,6 +24,7 @@ import typer
 from pathlib import Path
 import json
 import yaml
+import sqlite3
 from datetime import datetime
 from typing import Optional
 
@@ -179,7 +180,20 @@ def analyze(
     if test:
         console.print("\n[dim italic]✓ Test mode — no data saved[/dim italic]")
     else:
-        console.print("\n[dim italic][Phase 2.3] SQLite + Obsidian persistence coming soon[/dim italic]")
+        # Persist analysis to SQLite
+        analysis_id = _persist_analysis(result, symbol.upper(), timeframe.upper())
+        
+        # Create vault note
+        vault_note = _create_vault_note(result, analysis_id)
+        
+        # Show persistence feedback
+        if analysis_id:
+            msg = f"💾 Guardado — ID #{analysis_id}"
+            if vault_note:
+                msg += f" | 📝 [[teses/{vault_note.stem}]]"
+            console.print(f"\n[green]{msg}[/green]")
+        else:
+            console.print("\n[yellow]⚠ Análise concluída mas persistência falhou[/yellow]")
 
 
 # ============================================================================
@@ -473,22 +487,115 @@ def knowledge(
 
 @app.command()
 def outcome(
-    trade_id: str = typer.Argument(..., help="ID do trade (ex: T20260501-001)"),
+    analysis_id: str = typer.Argument(..., help="ID do trade (ex: 2026-05-01-EURUSD-H1)"),
     result: float = typer.Argument(..., help="Resultado em pips/pontos (negativo = perda)"),
-    notes: str = typer.Option("", "--notes", "-n", help="Notas pós-trade"),
+    price_moved: int = typer.Option(0, "--price-moved", "-p", help="Pips de movimento real"),
+    execution: str = typer.Option("acceptable", "--execution", "-e", help="ideal | acceptable | poor | not_traded"),
+    invalidated: bool = typer.Option(False, "--invalidated", help="Se a setup foi invalidada"),
+    invalidation_type: str = typer.Option("", "--invalidation-type", help="Qual invalidação ocorreu"),
+    notes: str = typer.Option("", "--notes", "-n", help="Notas pós-trade (reflexão)"),
 ):
-    """Registar o resultado de um trade para post-mortem."""
+    """Registar o resultado de um trade para post-mortem e aprendizado."""
     
-    console.print(Panel(
-        f"[bold]Recording Outcome: {trade_id}[/bold]\n"
-        f"Result: [{'green' if result >= 0 else 'red'}]{'+' if result >= 0 else ''}{result:.1f} pips[/{'green' if result >= 0 else 'red'}]",
-        border_style="green" if result >= 0 else "red"
-    ))
+    from datetime import datetime
+    import json
     
-    # Phase 2.3: Write to SQLite + Obsidian post-mortem
-    console.print(f"[dim italic]Outcome '{trade_id}' logged (SQLite persistence in Phase 2.3)[/dim italic]")
-    if notes:
-        console.print(f"[dim]Notes: {notes}[/dim]")
+    try:
+        db_path = Path("database.db")
+        if not db_path.exists():
+            console.print("[red]✗ Database not found. Run 'python main.py init' first.[/red]")
+            raise typer.Exit(code=1)
+        
+        conn = sqlite3.connect(str(db_path))
+        cursor = conn.cursor()
+        
+        # Verify analysis exists
+        cursor.execute("SELECT symbol, timeframe, bias FROM analyses WHERE id = ?", (analysis_id,))
+        analysis_row = cursor.fetchone()
+        
+        if not analysis_row:
+            console.print(f"[red]✗ Analysis not found: {analysis_id}[/red]")
+            raise typer.Exit(code=1)
+        
+        symbol, timeframe, bias = analysis_row
+        
+        # Generate outcome ID
+        outcome_id = f"outcome-{analysis_id}-{datetime.now().isoformat()[:10]}"
+        
+        # Insert outcome record
+        cursor.execute("""
+            INSERT INTO analysis_outcomes
+            (id, analysis_id, outcome_timestamp, outcome_source, price_moved_pips,
+             profit_loss_pips, invalidated, invalidation_type, execution_quality,
+             post_mortem_notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            outcome_id,
+            analysis_id,
+            datetime.now().isoformat(),
+            "manual",
+            price_moved,
+            int(result),
+            invalidated,
+            invalidation_type if invalidated else None,
+            execution,
+            notes or None,
+        ))
+        
+        conn.commit()
+        conn.close()
+        
+        # Display result
+        result_color = "green" if result >= 0 else "red"
+        console.print(Panel(
+            f"[bold]Outcome Recorded: {analysis_id}[/bold]\n"
+            f"[{result_color}]{'+' if result >= 0 else ''}{result:.0f} pips[/{result_color}] | "
+            f"Execution: {execution} | "
+            f"Invalidated: {'✓' if invalidated else '✗'}",
+            border_style=result_color
+        ))
+        
+        # Create post-mortem note in vault
+        vault_dir = Path("Trade-CLI-Vault/revisoes")
+        vault_dir.mkdir(parents=True, exist_ok=True)
+        
+        outcome_note = vault_dir / f"{analysis_id}-outcome.md"
+        outcome_note.write_text(f"""---
+type: revisao
+analysis_id: {analysis_id}
+symbol: {symbol}
+timeframe: {timeframe}
+outcome_date: {datetime.now().isoformat()[:10]}
+tags: [outcome, post-mortem, {bias}]
+---
+
+# Post-Mortem — {analysis_id}
+
+## Resultado
+
+- **Pips**: {'+' if result >= 0 else ''}{result:.0f} pips
+- **Execução**: {execution}
+- **Invalidado**: {'Sim' if invalidated else 'Não'}
+{f'- **Tipo de Invalidação**: {invalidation_type}' if invalidated else ''}
+- **Preço Movido**: {price_moved} pips
+
+## Reflexão
+
+{notes if notes else '(Sem notas adicionadas)'}
+
+## Ligações
+
+Ver análise original: [[teses/{analysis_id}]]
+
+---
+*Gerado em {datetime.now().isoformat()[:19]}*
+""")
+        
+        console.print(f"[green]✓ Post-mortem saved: [[revisoes/{outcome_note.stem}]][/green]")
+    
+    except Exception as e:
+        console.print(f"[red]✗ Failed to record outcome: {e}[/red]")
+        raise typer.Exit(code=1)
 
 
 # ============================================================================
@@ -497,33 +604,143 @@ def outcome(
 
 @app.command()
 def review(
-    period: str = typer.Argument("week", help="week | month | custom"),
+    period: str = typer.Argument("week", help="week | month | all"),
+    symbol: str = typer.Option("", "--symbol", "-s", help="Filtrar por símbolo"),
     output: str = typer.Option("", "--output", "-o", help="Guardar relatório em ficheiro"),
 ):
-    """Gerar revisão de performance semanal ou mensal."""
+    """Gerar revisão de performance semanal, mensal ou histórica."""
     
-    console.print(Panel(
-        f"[bold cyan]Performance Review — {period.upper()}[/bold cyan]",
-        border_style="cyan"
-    ))
+    from datetime import datetime, timedelta
     
-    # Phase 2.3: Read from SQLite and generate report
-    table = Table(title="Review Summary (Placeholder)", box=box.ROUNDED)
-    table.add_column("Metric", style="cyan")
-    table.add_column("Value", justify="right")
+    try:
+        db_path = Path("database.db")
+        if not db_path.exists():
+            console.print("[red]✗ Database not found. Run 'python main.py init' first.[/red]")
+            raise typer.Exit(code=1)
+        
+        conn = sqlite3.connect(str(db_path))
+        cursor = conn.cursor()
+        
+        # Calculate date filter
+        now = datetime.now()
+        if period == "week":
+            start_date = (now - timedelta(days=7)).isoformat()
+            title = "Weekly Review"
+        elif period == "month":
+            start_date = (now - timedelta(days=30)).isoformat()
+            title = "Monthly Review"
+        else:  # all
+            start_date = "1970-01-01"
+            title = "All-Time Review"
+        
+        # Build query
+        query = """
+            SELECT 
+                a.symbol,
+                COUNT(*) as total_analyses,
+                SUM(CASE WHEN a.verdict = 'allowed' THEN 1 ELSE 0 END) as allowed_count,
+                SUM(CASE WHEN a.verdict = 'watch_only' THEN 1 ELSE 0 END) as watch_count,
+                SUM(CASE WHEN a.verdict = 'blocked' THEN 1 ELSE 0 END) as blocked_count,
+                AVG(a.confidence_score) as avg_confidence,
+                SUM(CASE WHEN ao.profit_loss_pips > 0 THEN 1 ELSE 0 END) as profitable_outcomes,
+                COUNT(ao.id) as total_outcomes,
+                AVG(ao.profit_loss_pips) as avg_pips
+            FROM analyses a
+            LEFT JOIN analysis_outcomes ao ON a.id = ao.analysis_id
+            WHERE a.timestamp > ?
+        """
+        params = [start_date]
+        
+        if symbol:
+            query += " AND a.symbol = ?"
+            params.append(symbol.upper())
+        
+        query += " GROUP BY a.symbol ORDER BY total_analyses DESC"
+        
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        
+        conn.close()
+        
+        # Display results
+        console.print(Panel(
+            f"[bold cyan]{title}[/bold cyan]\n"
+            f"[dim]Period: {start_date[:10]} to {now.isoformat()[:10]}[/dim]"
+            f"{f' | Symbol: {symbol.upper()}' if symbol else ''}",
+            border_style="cyan"
+        ))
+        
+        if not rows:
+            console.print("[yellow]No analyses found for this period.[/yellow]")
+            return
+        
+        table = Table(title="Performance Summary", box=box.ROUNDED, show_header=True)
+        table.add_column("Symbol", style="bold cyan")
+        table.add_column("Total", justify="right", style="dim")
+        table.add_column("Allowed", justify="right")
+        table.add_column("Watch", justify="right", style="yellow")
+        table.add_column("Blocked", justify="right", style="red")
+        table.add_column("Avg Conf", justify="right", style="green")
+        table.add_column("Outcomes", justify="right", style="magenta")
+        table.add_column("Win %", justify="right")
+        table.add_column("Avg Pips", justify="right")
+        
+        for row in rows:
+            sym, total, allowed, watch, blocked, avg_conf, profitable, outcomes, avg_pips = row
+            
+            win_pct = ""
+            if outcomes and outcomes > 0:
+                win_pct = f"{(profitable / outcomes * 100):.0f}%"
+            
+            avg_pips_str = f"{avg_pips:+.0f}" if avg_pips else "—"
+            
+            table.add_row(
+                sym,
+                str(total),
+                str(allowed or 0),
+                str(watch or 0),
+                str(blocked or 0),
+                f"{avg_conf:.2f}" if avg_conf else "—",
+                f"{outcomes or 0}",
+                win_pct,
+                avg_pips_str
+            )
+        
+        console.print(table)
+        
+        # Summary stats
+        total_analyses = sum(row[1] for row in rows)
+        total_allowed = sum(row[2] or 0 for row in rows)
+        total_outcomes = sum(row[7] or 0 for row in rows)
+        total_pips = sum((row[8] or 0) * (row[7] or 0) for row in rows)
+        
+        console.print(f"\n[bold]Summary:[/bold]")
+        console.print(f"  Total Analyses: {total_analyses}")
+        console.print(f"  Allowed: {total_allowed} ({total_allowed/total_analyses*100:.0f}%)" if total_analyses else "  Allowed: 0")
+        if total_outcomes > 0:
+            console.print(f"  Tracked Outcomes: {total_outcomes}")
+            console.print(f"  Total Pips: {total_pips:+.0f}")
+            console.print(f"  Avg per Outcome: {total_pips/total_outcomes:+.0f}")
+        
+        # Save to file if requested
+        if output:
+            with open(output, 'w', encoding='utf-8') as f:
+                f.write(f"# {title}\n\n")
+                f.write(f"Period: {start_date[:10]} to {now.isoformat()[:10]}\n")
+                if symbol:
+                    f.write(f"Symbol: {symbol.upper()}\n")
+                f.write(f"\n## Statistics\n\n")
+                f.write(f"- Total Analyses: {total_analyses}\n")
+                f.write(f"- Allowed: {total_allowed}\n")
+                f.write(f"- Blocked: {sum(row[4] or 0 for row in rows)}\n")
+                if total_outcomes > 0:
+                    f.write(f"- Total Outcomes: {total_outcomes}\n")
+                    f.write(f"- Total Pips: {total_pips:+.0f}\n")
+            console.print(f"[green]✓ Report saved to {output}[/green]")
     
-    table.add_row("Period", period)
-    table.add_row("Total Analyses", "0 (no data yet)")
-    table.add_row("Allowed", "0")
-    table.add_row("Blocked", "0")
-    table.add_row("Watch Only", "0")
-    
-    console.print(table)
-    
-    if output:
-        console.print(f"[dim]Report save to file: {output} — coming in Phase 2.3[/dim]")
-    
-    console.print("[dim italic]Full review system in Phase 2.3 (SQLite reads)[/dim italic]")
+    except Exception as e:
+        console.print(f"[red]✗ Failed to generate review: {e}[/red]")
+        raise typer.Exit(code=1)
 
 
 # ============================================================================
@@ -568,6 +785,153 @@ def assets():
     tf_config = config.get('timeframes', {})
     primary_tf = tf_config.get('primary_analysis', 'H1')
     console.print(f"\n[dim]Primary timeframe: [bold]{primary_tf}[/bold] | Config: config/assets.yaml[/dim]")
+
+
+# ============================================================================
+# HELPER FUNCTIONS — Persistence Layer
+# ============================================================================
+
+def _persist_analysis(result: dict, symbol: str, timeframe: str) -> Optional[str]:
+    """
+    Persist analysis result to SQLite analyses table.
+    Returns analysis ID (text) or None if failed.
+    """
+    try:
+        db_path = Path("database.db")
+        if not db_path.exists():
+            create_database(str(db_path))
+        
+        conn = sqlite3.connect(str(db_path))
+        analysis = result.get('analysis', {})
+        
+        # Generate ID: timestamp-symbol-timeframe
+        ts = result.get('timestamp', datetime.now().isoformat())[:10]  # YYYY-MM-DD
+        analysis_id = f"{ts}-{symbol}-{timeframe}"
+        
+        cursor = conn.execute("""
+            INSERT INTO analyses 
+            (id, symbol, timeframe, bias, confidence_score, alignment_score,
+             verdict, technical_score, price_action_score, fundamental_score,
+             invalidations, risk_notes, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            analysis_id,
+            symbol,
+            timeframe,
+            analysis.get('bias', 'neutral'),
+            analysis.get('confidence_score', 0.0),
+            analysis.get('alignment_score', 0.0),
+            result.get('verdict', 'blocked'),
+            analysis.get('technical_score', 0.0),
+            analysis.get('price_action_score', 0.0),
+            analysis.get('fundamental_score', 0.0),
+            json.dumps(result.get('invalidations', [])),
+            json.dumps(result.get('risk_notes', [])),
+            result.get('timestamp', datetime.now().isoformat()),
+        ))
+        
+        conn.commit()
+        conn.close()
+        return analysis_id
+    
+    except Exception as e:
+        console.print(f"[yellow]⚠ Failed to persist analysis to SQLite: {e}[/yellow]")
+        return None
+
+
+def _create_vault_note(result: dict, analysis_id: Optional[int]) -> Optional[Path]:
+    """
+    Create markdown note in Trade-CLI-Vault/teses/ directory.
+    Returns Path to created note or None if failed.
+    """
+    try:
+        vault_path = Path("Trade-CLI-Vault")
+        teses_dir = vault_path / "teses"
+        teses_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate note filename: YYYY-MM-DD-SYMBOL-TF.md
+        ts = result.get('timestamp', datetime.now().isoformat())[:10]
+        symbol = result.get('symbol', 'UNKNOWN')
+        tf = result.get('timeframe', 'UNKNOWN')
+        note_name = f"{ts}-{symbol}-{tf}.md"
+        note_path = teses_dir / note_name
+        
+        analysis = result.get('analysis', {})
+        bias = analysis.get('bias', 'neutral').upper()
+        verdict = result.get('verdict', 'blocked')
+        confidence = analysis.get('confidence_score', 0.0)
+        
+        # Build engine scores table
+        engine_scores_rows = ""
+        for eng in result.get('engine_outputs', []):
+            name = eng.get('name', 'unknown').replace('_', ' ').title()
+            score = eng.get('score', 0.0)
+            bar_filled = int(score * 10)
+            bar_empty = 10 - bar_filled
+            bar = "▓" * bar_filled + "░" * bar_empty
+            engine_scores_rows += f"| {name} | {bar} {score:.0%} |\n"
+        
+        # Build invalidations
+        invalidations_text = ""
+        for inv in result.get('invalidations', []):
+            invalidations_text += f"- {inv}\n"
+        if not invalidations_text:
+            invalidations_text = "None\n"
+        
+        # Build risk notes
+        risk_text = ""
+        for note in result.get('risk_notes', []):
+            risk_text += f"- {note}\n"
+        if not risk_text:
+            risk_text = "None\n"
+        
+        # Frontmatter & content
+        content = f"""---
+type: tese
+symbol: {symbol}
+timeframe: {tf}
+created: {ts}
+bias: {bias.lower()}
+verdict: {verdict}
+confidence: {confidence:.2f}
+tags: [{bias.lower()}, {tf.lower()}, {analysis.get('setup_type', 'unknown').replace(' ', '-').lower()}]
+analysis_id: {analysis_id or 'N/A'}
+---
+
+# {symbol} {tf} — {bias} ({ts})
+
+## Veredicto: {verdict.upper()}
+
+{result.get('verdict_reason', '(sem razão fornecida)')}
+
+## Engines
+
+| Engine | Score |
+|--------|-------|
+{engine_scores_rows}
+
+## Invalidações
+
+{invalidations_text}
+
+## Risk Notes
+
+{risk_text}
+
+## Links
+
+Ver [[ativos/{symbol}]] com setup [[conceitos/confluence]] e [[metodos/smart-money-concepts]]
+
+***
+*Gerado por Trade-CLI Antigravity | {result.get('timestamp', '')}*
+"""
+        
+        note_path.write_text(content, encoding='utf-8')
+        return note_path
+    
+    except Exception as e:
+        console.print(f"[yellow]⚠ Failed to create vault note: {e}[/yellow]")
+        return None
 
 
 # ============================================================================

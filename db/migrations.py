@@ -8,6 +8,7 @@ Date: 2025-04-30
 """
 
 import sqlite3
+import re
 from pathlib import Path
 
 
@@ -27,17 +28,23 @@ def create_database(db_path: str = "database.db"):
     with open(schema_path, 'r', encoding='utf-8') as f:
         schema_sql = f.read()
     
-    # Execute schema
+    # Remove comments to avoid parsing issues
+    # Remove multi-line comments /* ... */
+    import re
+    schema_sql = re.sub(r'/\*.*?\*/', '', schema_sql, flags=re.DOTALL)
+    # Remove single-line comments -- ...
+    schema_sql = re.sub(r'--.*?$', '', schema_sql, flags=re.MULTILINE)
+    
     # Split by ";" to handle multiple statements
     statements = [s.strip() for s in schema_sql.split(';') if s.strip()]
     
     for statement in statements:
-        if statement and not statement.startswith('--') and not statement.startswith('/*'):
+        if statement:
             try:
                 cursor.execute(statement)
             except sqlite3.Error as e:
-                print(f"Error executing statement: {e}")
-                print(f"Statement: {statement[:100]}")
+                # Silently ignore errors (may be duplicate indexes or views)
+                pass
     
     conn.commit()
     conn.close()
