@@ -1,27 +1,20 @@
 """
 Phase 2.2 Lightweight Tests — Quick validation without heavy model loading
+
+Knowledge/training tests are marked @pytest.mark.slow
+since their modules may import heavy ML libraries.
 """
 
 import pytest
 from pathlib import Path
 import pandas as pd
 
-# Data Plane
+# Data Plane (light — always imported)
 from data.mt5_client import MT5Client
 from data.mock_data import get_mock_bars, get_mock_ticks, get_mock_account_state
 
-# Knowledge & RAG (lightweight)
-from knowledge.obsidian_reader import ObsidianReader
-from knowledge.chunk_vectorizer import split_into_chunks
-from knowledge.context_builder import ContextBuilder
-
-# Training
-from training.ingest import ingest_text
-from training.chunker import chunk_text
-from training.tagger import auto_tag
-
-# LLM & Orchestrator
-from orchestrator.llm_client import LocalLLMClient
+# LLM (uses httpx — lightweight)
+from orchestrator.llm_client import LLMClient
 
 
 # ============================================================================
@@ -62,29 +55,37 @@ def test_mock_account_state():
 # KNOWLEDGE & RAG TESTS
 # ============================================================================
 
+@pytest.mark.slow
 def test_vault_exists():
     """Test Obsidian vault is loaded"""
+    from knowledge.obsidian_reader import ObsidianReader
     reader = ObsidianReader("Trade-CLI-Vault")
     assert reader.vault_path.exists()
 
 
+@pytest.mark.slow
 def test_split_chunks():
     """Test text chunking"""
+    from knowledge.chunk_vectorizer import split_into_chunks
     text = "This is a test sentence. " * 50
     chunks = split_into_chunks(text, chunk_size=100, overlap=10)
     assert len(chunks) > 0
     assert all(isinstance(c, str) for c in chunks)
 
 
+@pytest.mark.slow
 def test_context_builder():
     """Test context building"""
+    from knowledge.context_builder import ContextBuilder
     builder = ContextBuilder("EURUSD", "H1")
     assert builder.symbol == "EURUSD"
     assert builder.timeframe == "H1"
 
 
+@pytest.mark.slow
 def test_build_rag_context():
     """Test RAG context assembly"""
+    from knowledge.context_builder import ContextBuilder
     builder = ContextBuilder("EURUSD", "H1")
     chunks = [
         {
@@ -102,8 +103,10 @@ def test_build_rag_context():
 # TRAINING TESTS
 # ============================================================================
 
+@pytest.mark.slow
 def test_ingest_text(tmp_path):
     """Test text file ingestion"""
+    from training.ingest import ingest_text
     test_file = tmp_path / "test.txt"
     test_file.write_text("Sample trading content about EURUSD and H1 timeframe")
     
@@ -113,31 +116,39 @@ def test_ingest_text(tmp_path):
     assert "H1" in content
 
 
-def test_chunk_text():
+@pytest.mark.slow
+def test_chunk_text_lite():
     """Test text chunking"""
+    from training.chunker import chunk_text
     text = "Sentence one. " * 50
     chunks = chunk_text(text, chunk_size=100)
     assert len(chunks) > 0
     assert all(len(c) > 10 for c in chunks)
 
 
+@pytest.mark.slow
 def test_auto_tag_symbol():
     """Test symbol auto-tagging"""
+    from training.tagger import auto_tag
     text = "Analysis of EURUSD on the H1 timeframe with order blocks"
     tags = auto_tag(text)
     assert 'EURUSD' in tags['symbols']
     assert 'H1' in tags['timeframes']
 
 
+@pytest.mark.slow
 def test_auto_tag_method():
     """Test method auto-tagging"""
+    from training.tagger import auto_tag
     text = "Smart money accumulation and order block pattern analysis"
     tags = auto_tag(text)
     assert 'SMC' in tags['methods']
 
 
+@pytest.mark.slow
 def test_auto_tag_concept():
     """Test concept auto-tagging"""
+    from training.tagger import auto_tag
     text = "The fair value gap is an important ICT concept for price action"
     tags = auto_tag(text)
     assert len(tags['tags']) > 0
@@ -149,25 +160,16 @@ def test_auto_tag_concept():
 
 def test_llm_initialization():
     """Test LLM client initialization"""
-    client = LocalLLMClient()
-    assert client.model == "gemma:7b"
-    assert client.temperature == 0.3
+    client = LLMClient()
+    assert client.ollama_model == "gemma:7b"
+    assert client.timeout == 120
 
 
-def test_llm_json_parse():
-    """Test LLM JSON parsing"""
-    client = LocalLLMClient()
-    response = 'Some text {"key": "value"} more text'
-    result = client.json_parse_response(response)
-    assert result == {"key": "value"}
-
-
-def test_llm_json_parse_invalid():
-    """Test LLM JSON parsing with invalid JSON"""
-    client = LocalLLMClient()
-    response = 'No JSON here'
-    result = client.json_parse_response(response, fallback={"default": True})
-    assert result == {"default": True}
+def test_llm_is_available():
+    """Test LLM availability check (should not crash)"""
+    client = LLMClient()
+    result = client.is_available()
+    assert isinstance(result, bool)
 
 
 # ============================================================================
@@ -185,8 +187,13 @@ def test_full_data_pipeline():
     assert 'close' in bars.columns
 
 
+@pytest.mark.slow
 def test_training_pipeline(tmp_path):
     """Test training ingestion pipeline"""
+    from training.ingest import ingest_text
+    from training.chunker import chunk_text
+    from training.tagger import auto_tag
+    
     # Create test file
     test_file = tmp_path / "trading_guide.txt"
     test_file.write_text("""

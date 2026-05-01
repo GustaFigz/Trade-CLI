@@ -1,248 +1,221 @@
 """
-Local LLM Client — Trade-CLI Phase 2
+LLM Client — Trade-CLI Fase 2
+Backend: Ollama (Gemma local) como primário.
+Fallback: OpenAI-compatible endpoint via LLM_API_BASE env var.
+NUNCA usa cloud APIs como default — privacidade e zero custo.
 
-Gemma 7B via Ollama (local, free, offline).
-No cloud dependencies, no API keys.
+Fase: 2.3
+Data: 2026-05-01
 """
+from __future__ import annotations
 
-from typing import Optional, Dict, Any, List
+import os
 import logging
-import json
+from dataclasses import dataclass
+from typing import Optional
+import httpx
 
 logger = logging.getLogger(__name__)
 
-# Global Ollama client (lazy loaded)
-_OLLAMA_CLIENT = None
+
+@dataclass
+class LLMResponse:
+    content: str
+    model: str
+    backend: str  # "ollama" | "openai_compatible"
+    tokens_used: int = 0
 
 
-def get_ollama_client():
+class LLMClient:
     """
-    Get Ollama client (lazy initialization).
-    
-    Returns:
-        ollama module, or None if unavailable
+    Abstracção sobre backends LLM locais.
+    Prioridade: Ollama → fallback OpenAI-compatible (se configurado via env).
     """
-    global _OLLAMA_CLIENT
-    
-    if _OLLAMA_CLIENT is not None:
-        return _OLLAMA_CLIENT
-    
-    try:
-        import ollama
-        logger.info("Ollama module loaded")
-        _OLLAMA_CLIENT = ollama
-        return _OLLAMA_CLIENT
-    except ImportError:
-        logger.error("Ollama Python client not installed. Install with: pip install ollama")
-        return None
 
+    def __init__(self) -> None:
+        self.ollama_base = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        self.ollama_model = os.getenv("OLLAMA_MODEL", "gemma:7b")
+        self.fallback_base = os.getenv("LLM_API_BASE", "")
+        self.fallback_model = os.getenv("LLM_MODEL", "")
+        self.fallback_key = os.getenv("LLM_API_KEY", "")
+        self.timeout = int(os.getenv("LLM_TIMEOUT_SECONDS", "120"))
 
-class LocalLLMClient:
-    """
-    Client for local LLM via Ollama.
-    Uses Gemma 7B model.
-    """
-    
-    def __init__(self, model: str = "gemma:7b", temperature: float = 0.3):
-        """
-        Initialize LLM client.
-        
-        Args:
-            model: Ollama model name (default: gemma:7b)
-            temperature: Temperature (0.0-1.0, lower = more deterministic)
-        """
-        self.model = model
-        self.temperature = temperature
-        self.ollama = get_ollama_client()
-        self.available = self.ollama is not None
-    
+    def is_ollama_available(self) -> bool:
+        """Check if Ollama server is running and reachable."""
+        try:
+            response = httpx.get(f"{self.ollama_base}/api/tags", timeout=3)
+            return response.status_code == 200
+        except Exception:
+            return False
+
     def is_available(self) -> bool:
-        """Check if Ollama is running and model is available."""
-        if not self.available:
-            return False
-        
-        try:
-            # Try to list models
-            models = self.ollama.list()
-            model_names = [m['name'] for m in models.get('models', [])]
-            available = any(self.model in name for name in model_names)
-            
-            if available:
-                logger.info(f"LLM model '{self.model}' is available")
-            else:
-                logger.warning(f"LLM model '{self.model}' not found. Run: ollama pull {self.model}")
-            
-            return available
-        except Exception as e:
-            logger.warning(f"Cannot reach Ollama: {e}. Make sure 'ollama serve' is running.")
-            return False
-    
-    def chat(self, messages: List[Dict[str, str]]) -> Optional[str]:
+        """Check if any LLM backend is available."""
+        if self.is_ollama_available():
+            return True
+        if self.fallback_base:
+            return True
+        return False
+
+    def chat(
+        self,
+        system: str,
+        user: str,
+        max_tokens: int = 2048,
+    ) -> LLMResponse:
         """
-        Send chat request to LLM.
-        
+        Send a chat request to the best available LLM backend.
+
         Args:
-            messages: List of {role, content} dicts
-            
+            system: System prompt
+            user: User message
+            max_tokens: Maximum tokens to generate
+
         Returns:
-            LLM response text, or None if failed
+            LLMResponse with content and metadata
+
+        Raises:
+            RuntimeError: If no backend is available
         """
-        if not self.available:
-            logger.error("LLM not available")
-            return None
-        
-        try:
-            response = self.ollama.chat(
-                model=self.model,
-                messages=messages,
-                temperature=self.temperature,
+        if self.is_ollama_available():
+            return self._chat_ollama(system, user, max_tokens)
+        elif self.fallback_base:
+            logger.warning("Ollama indisponível — usando fallback OpenAI-compatible")
+            return self._chat_openai_compatible(system, user, max_tokens)
+        else:
+            raise RuntimeError(
+                "Nenhum backend LLM disponível. "
+                "Inicia o Ollama: 'ollama serve' e garante que o modelo está instalado: "
+                f"'ollama pull {self.ollama_model}'"
             )
-            
-            # ARQ-004: Defensive parsing for Ollama >= 0.3 (object attrs) and < 0.3 (dict)
-            try:
-                if hasattr(response, 'message') and hasattr(response.message, 'content'):
-                    # Ollama >= 0.3: returns object with attributes
-                    content = response.message.content
-                elif isinstance(response, dict):
-                    # Ollama < 0.3: returns dict
-                    content = response.get('message', {}).get('content', '')
-                else:
-                    content = str(response)
-                return content.strip() if content else ""
-            except Exception as parse_error:
-                logger.error(f"Error parsing Ollama response: {parse_error}")
-                return ""
-        except Exception as e:
-            logger.error(f"LLM chat failed: {e}")
-            return None
-    
+
+    def _chat_ollama(
+        self, system: str, user: str, max_tokens: int
+    ) -> LLMResponse:
+        """Chat via Ollama local API."""
+        payload = {
+            "model": self.ollama_model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "stream": False,
+            "options": {"num_predict": max_tokens},
+        }
+        response = httpx.post(
+            f"{self.ollama_base}/api/chat",
+            json=payload,
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+        data = response.json()
+        return LLMResponse(
+            content=data["message"]["content"],
+            model=self.ollama_model,
+            backend="ollama",
+        )
+
+    def _chat_openai_compatible(
+        self, system: str, user: str, max_tokens: int
+    ) -> LLMResponse:
+        """Chat via OpenAI-compatible API endpoint."""
+        headers = {"Content-Type": "application/json"}
+        if self.fallback_key:
+            headers["Authorization"] = f"Bearer {self.fallback_key}"
+        payload = {
+            "model": self.fallback_model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "max_tokens": max_tokens,
+        }
+        response = httpx.post(
+            f"{self.fallback_base}/chat/completions",
+            json=payload,
+            headers=headers,
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+        data = response.json()
+        return LLMResponse(
+            content=data["choices"][0]["message"]["content"],
+            model=self.fallback_model,
+            backend="openai_compatible",
+        )
+
+    # ── Convenience methods for orchestrator ──────────────────────────
+
     def generate_thesis(self, context: str) -> Optional[str]:
         """
         Generate trading thesis from analysis context.
-        
+
         Args:
-            context: Full analysis context
-            
+            context: Full analysis context string
+
         Returns:
-            LLM-generated thesis, or None if failed
+            LLM-generated thesis text, or None if failed
         """
-        if not self.available:
-            logger.error("LLM not available")
+        try:
+            response = self.chat(
+                system=(
+                    "You are a professional forex trading analyst. "
+                    "Provide concise, structured analysis based on the data provided. "
+                    "Be direct and professional."
+                ),
+                user=context,
+            )
+            return response.content
+        except Exception as e:
+            logger.warning(f"LLM thesis generation failed: {e}")
             return None
-        
-        messages = [
-            {
-                "role": "user",
-                "content": context
-            }
-        ]
-        
-        return self.chat(messages)
-    
-    def explain_verdict(self, analysis: Dict[str, Any], verdict: str) -> Optional[str]:
+
+    def synthesize_engines(self, engines_text: str) -> Optional[str]:
+        """
+        Synthesize multiple engine outputs into consensus.
+
+        Args:
+            engines_text: Formatted engine outputs
+
+        Returns:
+            LLM synthesis text, or None if failed
+        """
+        try:
+            response = self.chat(
+                system=(
+                    "You are a trading analysis synthesizer. "
+                    "Combine multiple engine outputs into a coherent analysis. "
+                    "Note conflicts between engines. "
+                    "Give a consensus bias and confidence. "
+                    "Keep response concise (5-7 sentences)."
+                ),
+                user=engines_text,
+            )
+            return response.content
+        except Exception as e:
+            logger.warning(f"LLM synthesis failed: {e}")
+            return None
+
+    def explain_verdict(self, analysis_summary: str) -> Optional[str]:
         """
         Generate explanation for analysis verdict.
-        
+
         Args:
-            analysis: Analysis dict with bias, scores, etc.
-            verdict: Verdict ("allowed", "watch_only", "blocked")
-            
+            analysis_summary: Summary of the analysis with verdict
+
         Returns:
             LLM explanation, or None if failed
         """
-        if not self.available:
-            return None
-        
-        prompt = f"""
-Given this trading analysis:
-- Symbol: {analysis.get('symbol')}
-- Timeframe: {analysis.get('timeframe')}
-- Bias: {analysis.get('bias')}
-- Confidence: {analysis.get('confidence', 0.0):.1%}
-- Alignment Score: {analysis.get('alignment_score', 0.0):.1%}
-- Verdict: {verdict}
-
-Provide a brief (2-3 sentences) explanation of why this verdict was given.
-Be concise and professional.
-"""
-        
-        messages = [
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ]
-        
-        return self.chat(messages)
-    
-    def synthesize_engines(self, engine_outputs: List[Dict[str, Any]]) -> Optional[str]:
-        """
-        Synthesize multiple engine outputs into consensus.
-        
-        Args:
-            engine_outputs: List of engine output dicts
-            
-        Returns:
-            LLM synthesis, or None if failed
-        """
-        if not self.available:
-            return None
-        
-        # Format engine outputs
-        engines_text = ""
-        for output in engine_outputs:
-            engines_text += f"""
-## {output.get('engine_name')}
-Score: {output.get('score', 0.0):.1%}
-Explanation: {output.get('explanation')}
-"""
-        
-        prompt = f"""
-Below are outputs from multiple trading analysis engines.
-
-{engines_text}
-
-Synthesize these outputs into a single, coherent analysis. 
-Note any conflicts between engines.
-Provide a consensus bias (bullish/bearish/neutral).
-Give an overall confidence level.
-
-Keep response concise (5-7 sentences).
-"""
-        
-        messages = [
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ]
-        
-        return self.chat(messages)
-    
-    def json_parse_response(self, response_text: str, fallback: Dict[str, Any] = None) -> Dict[str, Any]:
-        """
-        Try to parse LLM response as JSON.
-        Useful for structured outputs.
-        
-        Args:
-            response_text: LLM response
-            fallback: Dict to return if parsing fails
-            
-        Returns:
-            Parsed JSON dict, or fallback
-        """
-        if not response_text:
-            return fallback or {}
-        
         try:
-            # Try to find JSON block
-            start = response_text.find('{')
-            end = response_text.rfind('}') + 1
-            
-            if start >= 0 and end > start:
-                json_str = response_text[start:end]
-                return json.loads(json_str)
-        except (json.JSONDecodeError, ValueError) as e:
-            logger.warning(f"Failed to parse JSON from LLM response: {e}")
-        
-        return fallback or {}
+            response = self.chat(
+                system=(
+                    "You are a risk management assistant. "
+                    "Provide a brief (2-3 sentences) explanation of why "
+                    "this verdict was given. Be concise and professional."
+                ),
+                user=analysis_summary,
+                max_tokens=256,
+            )
+            return response.content
+        except Exception as e:
+            logger.warning(f"LLM verdict explanation failed: {e}")
+            return None

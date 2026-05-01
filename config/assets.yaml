@@ -11,6 +11,8 @@ forex:
       description: Euro / US Dollar
       correlation_group: usd_major
       typical_spread_pips: 0.8
+      pip_value: 0.0001
+      digits: 5
       session_priority: [london, new_york, overlap]
       main_drivers: [ECB_rates, US_economy, geopolitics]
       playbook_relevant: [pullback_continuation, breakout, mean_reversion]
@@ -19,6 +21,8 @@ forex:
       description: US Dollar / Japanese Yen
       correlation_group: usd_major
       typical_spread_pips: 1.0
+      pip_value: 0.01
+      digits: 3
       session_priority: [tokyo, london, new_york]
       main_drivers: [BOJ_rates, US_rates, risk_sentiment]
       playbook_relevant: [breakout, correlations, safe_haven]
@@ -27,6 +31,8 @@ forex:
       description: US Dollar / Canadian Dollar
       correlation_group: usd_commodity
       typical_spread_pips: 1.2
+      pip_value: 0.0001
+      digits: 5
       session_priority: [new_york]
       main_drivers: [BoC_rates, oil_prices, US_economy]
       playbook_relevant: [commodity_correlation, mean_reversion]
@@ -86,22 +92,26 @@ timeframes:
 
 sessions:
   tokyo:
-    hours: "22:00-07:00 UTC"    # JPY session
-    primary_pairs: [USDJPY, EURJPY, GBPJPY]
+    start_utc: "00:00"
+    end_utc: "09:00"
+    primary_pairs: [USDJPY]
     characteristics: [lower_volatility, asian_hours]
     
   london:
-    hours: "07:00-16:00 UTC"    # European session
-    primary_pairs: [EURUSD, GBPUSD, EURJPY]
+    start_utc: "08:00"
+    end_utc: "17:00"
+    primary_pairs: [EURUSD, USDCAD]
     characteristics: [high_volatility, overlap_asian_us]
     
   new_york:
-    hours: "13:00-22:00 UTC"    # American session
-    primary_pairs: [EURUSD, USDJPY, USDCAD]
+    start_utc: "13:00"
+    end_utc: "22:00"
+    primary_pairs: [EURUSD, USDJPY, USDCAD, US30, NAS100]
     characteristics: [highest_volatility, news_heavy]
     
-  overlap:
-    hours: "overlap London-NY"
+  overlap_london_ny:
+    start_utc: "13:00"
+    end_utc: "17:00"
     characteristics: [max_volatility, best_liquidity]
 
 # ============================================================================
@@ -116,8 +126,8 @@ correlation_groups:
     
   usd_commodity:
     symbol: USD vs commodities
-    pairs: [USDCAD, AUDUSD, NZDUSD]
-    rule: "Oil/commodity up = these pairs down"
+    pairs: [USDCAD]
+    rule: "Oil/commodity up = USDCAD down"
     
   us_equity:
     symbol: US stock markets
@@ -191,10 +201,8 @@ llm:
   backend: ollama
   model: gemma:7b
   
-  # Alternative: uncomment if you have different setup
-  # backend: anthropic
-  # model: claude-haiku-4.5
-  # api_key: ${ANTHROPIC_API_KEY}  # from .env
+  # Fallback: OpenAI-compatible API via env vars
+  # Set LLM_API_BASE, LLM_API_KEY, LLM_MODEL in .env
   
   # Temperature (creativity)
   temperature: 0.3               # Low = more deterministic

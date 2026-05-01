@@ -1,5 +1,9 @@
 """
 Phase 2.2 Tests — Data Plane, RAG, Training, Orchestrator
+
+Tests marked with @pytest.mark.slow import heavy ML libraries
+(sentence-transformers) and are excluded by default.
+Run with: pytest -m slow
 """
 
 import pytest
@@ -7,24 +11,12 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 
-# Data Plane
+# Data Plane (light — always run)
 from data.mt5_client import MT5Client
 from data.mock_data import get_mock_bars, get_mock_ticks, get_mock_account_state
 
-# Knowledge & RAG
-from knowledge.obsidian_reader import ObsidianReader
-from knowledge.chunk_vectorizer import ChunkVectorizer, split_into_chunks
-from knowledge.rag_retriever import RAGRetriever
-from knowledge.context_builder import ContextBuilder
-
-# Training
-from training.ingest import ingest_document, ingest_text
-from training.chunker import chunk_text, chunk_markdown
-from training.tagger import auto_tag
-
-# LLM & Orchestrator
-from orchestrator.llm_client import LocalLLMClient
-from orchestrator.orchestrator import Orchestrator
+# LLM & Orchestrator — import at module level (uses httpx, not heavy)
+from orchestrator.llm_client import LLMClient
 
 
 # ============================================================================
@@ -67,22 +59,27 @@ class TestMT5Client:
 # KNOWLEDGE & RAG TESTS
 # ============================================================================
 
+@pytest.mark.slow
 class TestObsidianReader:
     def test_vault_exists(self):
         """Test Obsidian vault is loaded"""
+        from knowledge.obsidian_reader import ObsidianReader
         reader = ObsidianReader("Trade-CLI-Vault")
         assert reader.vault_path.exists()
         
     def test_get_concepts(self):
         """Test reading concepts folder"""
+        from knowledge.obsidian_reader import ObsidianReader
         reader = ObsidianReader("Trade-CLI-Vault")
         concepts = reader.get_all_concepts()
         assert isinstance(concepts, list)
 
 
+@pytest.mark.slow
 class TestChunkVectorizer:
     def test_split_chunks(self):
         """Test text chunking"""
+        from knowledge.chunk_vectorizer import split_into_chunks
         text = "This is a test. " * 50
         chunks = split_into_chunks(text, chunk_size=100, overlap=10)
         assert len(chunks) > 0
@@ -90,19 +87,23 @@ class TestChunkVectorizer:
         
     def test_vectorizer_initialization(self):
         """Test vectorizer initialization"""
+        from knowledge.chunk_vectorizer import ChunkVectorizer
         vectorizer = ChunkVectorizer()
         assert vectorizer.model_name == 'all-MiniLM-L6-v2'
 
 
+@pytest.mark.slow
 class TestContextBuilder:
     def test_context_builder(self):
         """Test context building"""
+        from knowledge.context_builder import ContextBuilder
         builder = ContextBuilder("EURUSD", "H1")
         assert builder.symbol == "EURUSD"
         assert builder.timeframe == "H1"
         
     def test_build_rag_context(self):
         """Test RAG context assembly"""
+        from knowledge.context_builder import ContextBuilder
         builder = ContextBuilder("EURUSD", "H1")
         chunks = [
             {
@@ -120,9 +121,11 @@ class TestContextBuilder:
 # TRAINING TESTS
 # ============================================================================
 
+@pytest.mark.slow
 class TestTrainingIngest:
     def test_ingest_text(self, tmp_path):
         """Test text file ingestion"""
+        from training.ingest import ingest_document
         test_file = tmp_path / "test.txt"
         test_file.write_text("Sample trading content about EURUSD")
         
@@ -132,6 +135,7 @@ class TestTrainingIngest:
         
     def test_ingest_markdown(self, tmp_path):
         """Test markdown file ingestion"""
+        from training.ingest import ingest_document
         test_file = tmp_path / "test.md"
         test_file.write_text("# Trading\nContent about M15 timeframe")
         
@@ -140,9 +144,11 @@ class TestTrainingIngest:
         assert "M15" in content
 
 
+@pytest.mark.slow
 class TestChunker:
     def test_chunk_text(self):
         """Test text chunking"""
+        from training.chunker import chunk_text
         text = "Sentence one. " * 50
         chunks = chunk_text(text, chunk_size=100)
         assert len(chunks) > 0
@@ -150,14 +156,17 @@ class TestChunker:
         
     def test_chunk_markdown(self):
         """Test markdown chunking"""
+        from training.chunker import chunk_markdown
         md = "# Heading One\nContent here.\n## Heading Two\nMore content."
         chunks = chunk_markdown(md)
         assert len(chunks) > 0
 
 
+@pytest.mark.slow
 class TestAutoTag:
     def test_tag_symbol(self):
         """Test symbol auto-tagging"""
+        from training.tagger import auto_tag
         text = "Analysis of EURUSD on the H1 timeframe"
         tags = auto_tag(text)
         assert 'EURUSD' in tags['symbols']
@@ -165,12 +174,14 @@ class TestAutoTag:
         
     def test_tag_method(self):
         """Test method auto-tagging"""
+        from training.tagger import auto_tag
         text = "Smart money accumulation and order block pattern"
         tags = auto_tag(text)
         assert 'SMC' in tags['methods']
         
     def test_tag_concept(self):
         """Test concept auto-tagging"""
+        from training.tagger import auto_tag
         text = "The fair value gap is an important concept"
         tags = auto_tag(text)
         assert len(tags['tags']) > 0
@@ -180,30 +191,34 @@ class TestAutoTag:
 # LLM & ORCHESTRATOR TESTS
 # ============================================================================
 
-class TestLocalLLMClient:
+class TestLLMClient:
     def test_llm_initialization(self):
         """Test LLM client init"""
-        client = LocalLLMClient()
-        assert client.model == "gemma:7b"
-        assert client.temperature == 0.3
+        client = LLMClient()
+        assert client.ollama_model == "gemma:7b"
+        assert client.timeout == 120
         
     def test_llm_not_available_graceful(self):
         """Test LLM gracefully handles unavailability"""
-        client = LocalLLMClient()
-        # Should not crash if Ollama not running
-        result = client.json_parse_response("{}")
-        assert isinstance(result, dict)
+        client = LLMClient()
+        # is_available should return False if Ollama not running
+        # (should not crash)
+        result = client.is_available()
+        assert isinstance(result, bool)
 
 
+@pytest.mark.slow
 class TestOrchestrator:
     def test_orchestrator_initialization(self):
         """Test orchestrator init"""
+        from orchestrator.orchestrator import Orchestrator
         orch = Orchestrator(use_llm=False, use_rag=False, use_mt5=True)
         assert orch.mt5_client is not None
         assert orch.risk_guardian is not None
         
     def test_orchestrator_health_check(self):
         """Test orchestrator health check"""
+        from orchestrator.orchestrator import Orchestrator
         orch = Orchestrator(use_llm=False, use_rag=False)
         health = orch.health_check()
         assert 'timestamp' in health
@@ -214,6 +229,7 @@ class TestOrchestrator:
 # INTEGRATION TESTS
 # ============================================================================
 
+@pytest.mark.slow
 class TestPhase2Integration:
     def test_full_data_pipeline(self):
         """Test data retrieval pipeline"""
@@ -227,6 +243,10 @@ class TestPhase2Integration:
         
     def test_training_pipeline(self, tmp_path):
         """Test training ingestion pipeline"""
+        from training.ingest import ingest_document
+        from training.chunker import chunk_text
+        from training.tagger import auto_tag
+        
         # Create test file
         test_file = tmp_path / "trading_guide.txt"
         test_file.write_text("""

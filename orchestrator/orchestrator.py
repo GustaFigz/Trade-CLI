@@ -21,7 +21,7 @@ from knowledge.obsidian_reader import ObsidianReader
 from knowledge.chunk_vectorizer import ChunkVectorizer
 from knowledge.rag_retriever import RAGRetriever
 from knowledge.context_builder import ContextBuilder
-from orchestrator.llm_client import LocalLLMClient
+from orchestrator.llm_client import LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,7 @@ class Orchestrator:
         self.context_builder: Optional[ContextBuilder] = None
         
         # LLM
-        self.llm_client = LocalLLMClient() if use_llm else None
+        self.llm_client = LLMClient() if use_llm else None
         
         logger.info(f"Orchestrator initialized (LLM={use_llm}, RAG={use_rag}, MT5={use_mt5})")
     
@@ -153,7 +153,7 @@ class Orchestrator:
                     )
                     llm_synthesis = self.llm_client.generate_thesis(analysis_context)
                     if llm_synthesis:
-                        logger.info("LLM synthesis complete")
+                        logger.info(f"LLM synthesis complete (backend: {self.llm_client.ollama_model})")
             except Exception as e:
                 logger.warning(f"LLM synthesis failed, continuing without: {e}")
                 llm_synthesis = None
@@ -238,7 +238,7 @@ class Orchestrator:
                 llm_available = False
             health['components']['llm'] = {
                 'available': llm_available,
-                'model': self.llm_client.model,
+                'model': self.llm_client.ollama_model,
             }
         else:
             health['components']['llm'] = {'available': False, 'model': 'disabled'}

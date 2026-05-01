@@ -1,17 +1,23 @@
+#!/usr/bin/env python3
 """
-Trade-CLI - Main Entry Point
+Trade-CLI — Entry point principal.
+Usa o launcher interactivo quando chamado sem argumentos.
+Usa o CLI Typer directamente quando há argumentos.
 
-Phase 1: Terminal CLI with core subcommands
-Date: 2025-04-30
+Fase: 2.3
+Data: 2026-05-01
 """
-
 import sys
 from pathlib import Path
 
-# Add project to path
+# Garantir que o projecto está no path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from cli.main import app
+
+def main() -> None:
+    from cli.launcher import main as launcher_main
+    launcher_main()
+
 
 if __name__ == "__main__":
-    app()
+    main()

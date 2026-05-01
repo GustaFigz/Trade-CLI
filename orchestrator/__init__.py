@@ -8,10 +8,10 @@ Gemma 7B via Ollama (local, free, offline)
 - No cloud dependencies
 """
 
-from orchestrator.llm_client import LocalLLMClient
+from orchestrator.llm_client import LLMClient
 from orchestrator.orchestrator import Orchestrator
 
 __all__ = [
-    "LocalLLMClient",
+    "LLMClient",
     "Orchestrator"
 ]

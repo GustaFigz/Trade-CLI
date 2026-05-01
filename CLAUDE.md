@@ -53,6 +53,18 @@ EngineOutput(
 - ✅ Local embeddings (sentence-transformers)
 - ✅ Local vector DB (FAISS)
 
+### Rule 7: LLM Backend — Ollama First, Never Cloud Default
+- Primário SEMPRE: Ollama local (Gemma, llama3, etc.)
+- Fallback opcional: qualquer OpenAI-compatible endpoint via LLM_API_BASE env var
+- NUNCA hardcode cloud API como default
+- Configurado em: orchestrator/llm_client.py
+- Usa httpx directo (não o pacote ollama Python)
+
+### Rule 8: Logging Estruturado
+- Usar structlog em todos os módulos novos
+- Nunca usar print() fora do CLI layer
+- Logs vão para: trade-cli.log (structured JSON) + terminal (human readable)
+
 ---
 
 ## 📊 Current Status
@@ -304,9 +316,10 @@ def test_something():
 #    ollama pull gemma:7b
 # 4. Test:
 #    ollama list  # should show gemma:7b
-# 5. Python can now call it:
-#    import ollama
-#    response = ollama.chat(model="gemma:7b", messages=[...])
+# 5. Python uses httpx to call Ollama API directly:
+#    from orchestrator.llm_client import LLMClient
+#    client = LLMClient()
+#    response = client.chat(system="...", user="...")
 ```
 
 **Zero cost, zero privacy concerns, 100% offline.**
@@ -530,5 +543,5 @@ NUNCA usar NZDUSD como exemplo ou placeholder em código novo.
 ---
 
 **Last Updated:** 2026-05-01  
-**Phase:** 2 (Active — 2.2)  
+**Phase:** 2 (Active — 2.3)  
 **Context Level:** MANDATORY FOR ALL SESSIONS

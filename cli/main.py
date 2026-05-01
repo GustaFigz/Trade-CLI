@@ -120,8 +120,10 @@ def analyze(
         raise typer.Exit(code=1)
     
     # --- Display results ---
+    from cli.launcher import print_verdict, print_engine_scores
+
     analysis = result.get('analysis', {})
-    verdict_str = result.get('verdict', 'unknown').upper()
+    verdict_str = result.get('verdict', 'unknown')
     verdict_reason = result.get('verdict_reason', '')
     
     # Verdict color
@@ -130,50 +132,32 @@ def analyze(
         'WATCH_ONLY': 'bold yellow',
         'BLOCKED': 'bold red',
     }
-    verdict_color = verdict_colors.get(verdict_str, 'white')
-    
-    # Bias indicator (ASCII-safe for Windows terminal)
-    bias_indicators = {
-        'bullish': '[+]',
-        'bearish': '[-]',
-        'neutral': '[~]',
-        'fragile': '[!]',
-    }
-    bias_val = analysis.get('bias', 'neutral')
-    bias_emoji = bias_indicators.get(bias_val, '[?]')
+    verdict_color = verdict_colors.get(verdict_str.upper(), 'white')
     
     # Main summary panel
-    summary = Text()
-    summary.append(f"\n  Bias:       ", style="dim")
-    summary.append(f"{bias_emoji} {bias_val.upper()}", style="bold")
-    summary.append(f"\n  Setup:      ", style="dim")
-    summary.append(analysis.get('setup_type', 'N/A'), style="cyan")
-    summary.append(f"\n  Confidence: ", style="dim")
-    summary.append(f"{analysis.get('confidence_score', 0):.0%}", style="bold white")
-    summary.append(f"\n  Alignment:  ", style="dim")
-    summary.append(f"{analysis.get('alignment_score', 0):.0%}", style="bold white")
-    summary.append(f"\n\n  Verdict:    ", style="dim")
-    summary.append(f"  {verdict_str}  ", style=verdict_color)
-    summary.append(f"\n  Reason:     ", style="dim")
-    summary.append(verdict_reason, style="italic")
-    
-    console.print(Panel(summary, title="[bold]Analysis Result[/bold]", border_style=verdict_color.split()[-1]))
-    
-    # Engine scores table
-    engine_table = Table(title="Engine Scores", box=box.ROUNDED, show_header=True)
-    engine_table.add_column("Engine", style="cyan")
-    engine_table.add_column("Score", justify="center")
-    engine_table.add_column("Explanation", style="dim")
-    
+    result_table = Table(box=box.SIMPLE_HEAD, show_header=False, expand=True)
+    result_table.add_column(style="dim", min_width=18)
+    result_table.add_column(style="bold white")
+
+    result_table.add_row("Símbolo", f"{symbol.upper()}")
+    result_table.add_row("Timeframe", f"{timeframe.upper()}")
+    result_table.add_row("Bias", f"{analysis.get('bias', 'neutral').upper()}")
+    result_table.add_row("Setup", f"{analysis.get('setup_type', 'N/A')}")
+    result_table.add_row("Confiança", f"{analysis.get('confidence_score', 0):.0%}")
+    result_table.add_row("Alinhamento", f"{analysis.get('alignment_score', 0):.0%}")
+
+    console.print(Panel(result_table, title="  Análise", border_style="cyan"))
+
+    # Engine scores with visual bars
+    engine_scores = {}
     for eng in result.get('engine_outputs', []):
-        score = eng.get('score', 0)
-        score_color = "green" if score >= 0.65 else ("yellow" if score >= 0.45 else "red")
-        engine_table.add_row(
-            eng.get('name', 'unknown').replace('_', ' ').title(),
-            Text(f"{score:.0%}", style=f"bold {score_color}"),
-            eng.get('explanation', '')[:60],
-        )
-    console.print(engine_table)
+        name = eng.get('name', 'unknown').replace('_', ' ').title()
+        engine_scores[name] = eng.get('score', 0)
+    if engine_scores:
+        print_engine_scores(engine_scores)
+    
+    # Verdict with styled panel
+    print_verdict(verdict_str, verdict_reason)
     
     # Invalidations
     if result.get('invalidations'):
@@ -233,19 +217,14 @@ def health():
     
     # Ollama LLM
     try:
-        from orchestrator.llm_client import LocalLLMClient
-        llm = LocalLLMClient()
-        if llm.available:
-            try:
-                avail = llm.is_available()
-                if avail:
-                    table.add_row("LLM (Ollama)", *ok(f"model: {llm.model}"))
-                else:
-                    table.add_row("LLM (Ollama)", *warn(f"Ollama running but model {llm.model} not found"))
-            except Exception:
-                table.add_row("LLM (Ollama)", *warn("Ollama not running — run: ollama serve"))
+        from orchestrator.llm_client import LLMClient
+        llm = LLMClient()
+        if llm.is_ollama_available():
+            table.add_row("LLM (Ollama)", *ok(f"model: {llm.ollama_model}"))
+        elif llm.fallback_base:
+            table.add_row("LLM (Ollama)", *warn(f"Ollama offline — fallback: {llm.fallback_base}"))
         else:
-            table.add_row("LLM (Ollama)", *warn("ollama package not installed"))
+            table.add_row("LLM (Ollama)", *warn("Ollama not running — run: ollama serve"))
     except Exception as e:
         table.add_row("LLM (Ollama)", *err(str(e)))
     

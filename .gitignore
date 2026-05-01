@@ -1,17 +1,23 @@
-# Database files
+# ============================================================
+# Trade-CLI .gitignore — Versão definitiva 2026-05-01
+# ============================================================
+
+# Database
 database.db
 *.db
 *.sqlite3
-*.sqlite
 
-# Environment variables
+# Environment & secrets
 .env
 .env.local
 .env.*.local
+obsidian-mcp.json
+*.json.local
 
 # Python
 __pycache__/
 *.py[cod]
+*.pyo
 *.egg-info/
 .eggs/
 dist/
@@ -20,58 +26,56 @@ build/
 .venv/
 venv/
 env/
-ENV/
+.uv/
 
-# LLM Models (large files)
+# Logs
+*.log
+logs/
+trade-cli.log
+structlog.log
+
+# AI Models (large files — never commit)
 models/
 *.gguf
 *.bin
 *.safetensors
-ollama-cache/
+*.pt
+*.pth
 
-# IDE & Editor
-.vscode/
+# OS
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+
+# IDE
+.vscode/settings.json
 .idea/
 *.swp
 *.swo
-*~
-.DS_Store
-Thumbs.db
 
-# Logs
-*.log
-trade-cli.log
-ollama.log
-
-# Testing
+# Tests & coverage
 .pytest_cache/
 .coverage
+.coverage.*
 htmlcov/
-*.pyc
+coverage.xml
 
-# Obsidian app settings (conflictam entre máquinas)
+# Obsidian local config (nunca commitar — é por máquina)
 .obsidian/
-# Note: Keeps vault content (*.md), only excludes Obsidian app config
-
-# Ficheiros temporários
-*.tmp
-*.temp
-*~
 *.canvas
 
-# Chat/Documentation dumps (not code)
-Fase 1.md
-Fase 2.md
+# Chat dumps (nunca são documentação)
 "Fase 1.md"
+fase*.md
 chat-*.md
 
-# Ficheiros de planeamento (não são código)
-AUDIT-REPORT.md
-
-# MacOS
-.DS_Store
-.AppleDouble
-.LSOverride
+# Build artifacts
+*.pyc
+*.pyd
+.mypy_cache/
+.ruff_cache/
 
 # Caches de vectores RAG
 knowledge/index/
